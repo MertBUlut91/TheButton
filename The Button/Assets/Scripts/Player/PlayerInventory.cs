@@ -1,29 +1,40 @@
 using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
+using TheButton.Items;
 
 namespace TheButton.Player
 {
     /// <summary>
     /// Manages player inventory (4-5 slots)
-    /// This is a basic structure for future item system implementation
+    /// Handles item storage, usage, and synchronization across network
     /// </summary>
     public class PlayerInventory : NetworkBehaviour
     {
         [Header("Inventory Settings")]
         [SerializeField] private int maxSlots = 5;
+        
+        [Header("References")]
+        [Tooltip("Reference to PlayerNetwork for stat modifications")]
+        [SerializeField] private PlayerNetwork playerNetwork;
 
         // Network list for synchronized inventory
         private NetworkList<int> inventoryItems;
 
-        // Local cache for item references (itemId -> itemData)
-        private Dictionary<int, object> itemCache = new Dictionary<int, object>();
-
         public event System.Action OnInventoryChanged;
+        
+        // Event fired when a key is used (for door interaction)
+        public event System.Action OnKeyUsed;
 
         private void Awake()
         {
             inventoryItems = new NetworkList<int>();
+            
+            // Auto-find PlayerNetwork if not assigned
+            if (playerNetwork == null)
+            {
+                playerNetwork = GetComponent<PlayerNetwork>();
+            }
         }
 
         public override void OnNetworkSpawn()
@@ -94,18 +105,77 @@ namespace TheButton.Player
             }
 
             int itemId = inventoryItems[slotIndex];
-            Debug.Log($"[Inventory] Using item {itemId} from slot {slotIndex}");
-
-            // TODO: Implement item usage logic here
-            // This will be expanded when item system is implemented
-            // Example:
-            // - If medkit: restore health
-            // - If food: restore hunger
-            // - If water: restore thirst
-            // - If key: unlock door
-
-            // For now, just remove the item after use
-            inventoryItems.RemoveAt(slotIndex);
+            
+            // Get item data from database
+            ItemData itemData = ItemDatabase.Instance?.GetItem(itemId);
+            if (itemData == null)
+            {
+                Debug.LogWarning($"[Inventory] Item {itemId} not found in database!");
+                inventoryItems.RemoveAt(slotIndex);
+                return;
+            }
+            
+            Debug.Log($"[Inventory] Using item {itemData.itemName} (ID: {itemId}) from slot {slotIndex}");
+            
+            // Apply item effects based on type
+            bool consumeItem = true;
+            
+            switch (itemData.itemType)
+            {
+                case ItemType.Medkit:
+                    if (playerNetwork != null)
+                    {
+                        playerNetwork.ModifyHealthServerRpc(itemData.healthRestore);
+                        Debug.Log($"[Inventory] Restored {itemData.healthRestore} health");
+                    }
+                    break;
+                    
+                case ItemType.Food:
+                    if (playerNetwork != null)
+                    {
+                        playerNetwork.ModifyHungerServerRpc(itemData.hungerRestore);
+                        Debug.Log($"[Inventory] Restored {itemData.hungerRestore} hunger");
+                    }
+                    break;
+                    
+                case ItemType.Water:
+                    if (playerNetwork != null)
+                    {
+                        playerNetwork.ModifyThirstServerRpc(itemData.thirstRestore);
+                        Debug.Log($"[Inventory] Restored {itemData.thirstRestore} thirst");
+                    }
+                    break;
+                    
+                case ItemType.Key:
+                    // Notify that key was used (door will listen to this)
+                    NotifyKeyUsedClientRpc();
+                    Debug.Log($"[Inventory] Key used");
+                    break;
+                    
+                case ItemType.Hazard:
+                    if (playerNetwork != null)
+                    {
+                        playerNetwork.ModifyHealthServerRpc(-itemData.damageAmount);
+                        Debug.Log($"[Inventory] Took {itemData.damageAmount} damage from hazard item!");
+                    }
+                    break;
+                    
+                default:
+                    Debug.LogWarning($"[Inventory] Unknown item type: {itemData.itemType}");
+                    break;
+            }
+            
+            // Remove the item from inventory if it was consumed
+            if (consumeItem)
+            {
+                inventoryItems.RemoveAt(slotIndex);
+            }
+        }
+        
+        [ClientRpc]
+        private void NotifyKeyUsedClientRpc()
+        {
+            OnKeyUsed?.Invoke();
         }
 
         /// <summary>
@@ -161,6 +231,38 @@ namespace TheButton.Player
         private void OnInventoryListChanged(NetworkListEvent<int> changeEvent)
         {
             OnInventoryChanged?.Invoke();
+        }
+        
+        /// <summary>
+        /// Check if player has a specific item type
+        /// </summary>
+        public bool HasItemOfType(ItemType itemType)
+        {
+            foreach (int itemId in inventoryItems)
+            {
+                ItemData itemData = ItemDatabase.Instance?.GetItem(itemId);
+                if (itemData != null && itemData.itemType == itemType)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        
+        /// <summary>
+        /// Get the first item of a specific type
+        /// </summary>
+        public int GetFirstItemOfType(ItemType itemType)
+        {
+            for (int i = 0; i < inventoryItems.Count; i++)
+            {
+                ItemData itemData = ItemDatabase.Instance?.GetItem(inventoryItems[i]);
+                if (itemData != null && itemData.itemType == itemType)
+                {
+                    return i; // Return slot index
+                }
+            }
+            return -1;
         }
     }
 }

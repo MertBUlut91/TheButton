@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using TheButton.Player;
+using TheButton.Items;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.UI;
@@ -9,7 +10,7 @@ namespace TheButton.UI
 {
     /// <summary>
     /// Displays player inventory UI (4-5 slots at bottom of screen)
-    /// This is a basic structure for future inventory system
+    /// Shows item icons and allows usage via number keys or clicking
     /// </summary>
     public class InventoryUI : MonoBehaviour
     {
@@ -107,15 +108,35 @@ namespace TheButton.UI
                 if (i < items.Count && items[i] != -1)
                 {
                     // Slot has an item
+                    ItemData itemData = ItemDatabase.Instance?.GetItem(items[i]);
+                    
                     if (itemIcon != null)
                     {
                         itemIcon.enabled = true;
-                        // TODO: Set item sprite based on item ID
+                        
+                        // Set item sprite/icon if available
+                        if (itemData != null && itemData.icon != null)
+                        {
+                            itemIcon.sprite = itemData.icon;
+                        }
+                        
+                        // Set color based on item type
+                        if (itemData != null)
+                        {
+                            itemIcon.color = GetItemTypeColor(itemData.itemType);
+                        }
                     }
                     
                     if (itemText != null)
                     {
-                        itemText.text = GetItemName(items[i]);
+                        if (itemData != null)
+                        {
+                            itemText.text = itemData.itemName;
+                        }
+                        else
+                        {
+                            itemText.text = $"Item {items[i]}";
+                        }
                     }
                 }
                 else
@@ -163,15 +184,20 @@ namespace TheButton.UI
 
         private string GetItemName(int itemId)
         {
-            // TODO: Replace with actual item database lookup
-            return itemId switch
+            ItemData itemData = ItemDatabase.Instance?.GetItem(itemId);
+            return itemData != null ? itemData.itemName : $"Item {itemId}";
+        }
+        
+        private Color GetItemTypeColor(ItemType itemType)
+        {
+            return itemType switch
             {
-                0 => "Key",
-                1 => "Medkit",
-                2 => "Food",
-                3 => "Water",
-                4 => "Hazard",
-                _ => $"Item {itemId}"
+                ItemType.Key => Color.yellow,
+                ItemType.Medkit => Color.green,
+                ItemType.Food => new Color(1f, 0.5f, 0f), // Orange
+                ItemType.Water => Color.cyan,
+                ItemType.Hazard => Color.red,
+                _ => Color.white
             };
         }
 

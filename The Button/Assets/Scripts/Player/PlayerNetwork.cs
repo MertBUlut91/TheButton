@@ -90,6 +90,24 @@ namespace TheButton.Player
             {
                 Health.Value = Mathf.Max(0, Health.Value - 5f * deltaTime); // 5 damage per second
             }
+            
+            // Check if player died
+            if (Health.Value <= 0)
+            {
+                OnPlayerDeath();
+            }
+        }
+        
+        private void OnPlayerDeath()
+        {
+            Debug.Log($"[PlayerNetwork] Player {OwnerClientId} died");
+            
+            // Notify game manager
+            var gameManager = FindObjectOfType<Game.GameManager>();
+            if (gameManager != null)
+            {
+                gameManager.PlayerDied(OwnerClientId);
+            }
         }
 
         [ServerRpc]
@@ -134,6 +152,21 @@ namespace TheButton.Player
         public void ModifyStaminaServerRpc(float amount)
         {
             Stamina.Value = Mathf.Clamp(Stamina.Value + amount, 0, 100);
+        }
+        
+        /// <summary>
+        /// Reset all stats to default values (Server only)
+        /// </summary>
+        public void ResetStats()
+        {
+            if (!IsServer) return;
+            
+            Health.Value = 100f;
+            Hunger.Value = 100f;
+            Thirst.Value = 100f;
+            Stamina.Value = 100f;
+            
+            Debug.Log($"[PlayerNetwork] Reset stats for Player {OwnerClientId}");
         }
     }
 
