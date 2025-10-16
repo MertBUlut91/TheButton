@@ -82,11 +82,11 @@ namespace TheButton.Interactables
             
             if (isLocked.Value)
             {
-                // Check if player has a key
-                if (playerInventory != null && playerInventory.HasItemOfType(ItemType.Key))
+                // Check if player has a key (category: Key)
+                if (playerInventory != null && playerInventory.HasItemOfCategory(Items.ItemCategory.Key))
                 {
                     // Use the key to unlock the door
-                    int keySlot = playerInventory.GetFirstItemOfType(ItemType.Key);
+                    int keySlot = playerInventory.GetFirstItemOfCategory(Items.ItemCategory.Key);
                     if (keySlot >= 0)
                     {
                         UnlockDoorServerRpc();

@@ -288,6 +288,7 @@ GameObject:
   - component: {fileID: 6428314716938354217}
   - component: {fileID: 7517545176875149584}
   - component: {fileID: 5582654649061582105}
+  - component: {fileID: 3500030477831238277}
   m_Layer: 0
   m_Name: Player
   m_TagString: Untagged
@@ -506,6 +507,21 @@ MonoBehaviour:
     m_Bits: 4294967295
   interactKey: 101
   cameraTransform: {fileID: 3122445204829657997}
+--- !u!114 &3500030477831238277
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6696521698489531608}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::TheButton.Player.PlayerInventory
+  ShowTopMostFoldoutHeaderGroup: 1
+  maxSlots: 5
+  playerNetwork: {fileID: 7517545176875149584}
 --- !u!1 &8465527743451553647
 GameObject:
   m_ObjectHideFlags: 0

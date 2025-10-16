@@ -7,13 +7,14 @@ namespace TheButton.Interactables
     /// <summary>
     /// Interactive button that spawns items when pressed
     /// Networked and server-authoritative
+    /// Uses ItemData ScriptableObject reference instead of ID
     /// </summary>
     [RequireComponent(typeof(NetworkObject))]
     public class SpawnButton : NetworkBehaviour, IInteractable
     {
         [Header("Button Configuration")]
-        [Tooltip("Item ID to spawn when button is pressed")]
-        [SerializeField] private int itemIdToSpawn = 0;
+        [Tooltip("ItemData to spawn when button is pressed")]
+        [SerializeField] private ItemData itemToSpawn;
         
         [Tooltip("Where the item will spawn")]
         [SerializeField] private Transform spawnPoint;
@@ -104,8 +105,7 @@ namespace TheButton.Interactables
                 return $"Button on cooldown ({Mathf.CeilToInt(remainingTime)}s)";
             }
             
-            ItemData itemData = ItemDatabase.Instance?.GetItem(itemIdToSpawn);
-            string itemName = itemData != null ? itemData.itemName : $"Item {itemIdToSpawn}";
+            string itemName = itemToSpawn != null ? itemToSpawn.itemName : "Unknown Item";
             return $"Press E to spawn {itemName}";
         }
         
@@ -129,6 +129,12 @@ namespace TheButton.Interactables
                 return;
             }
             
+            if (itemToSpawn == null)
+            {
+                Debug.LogError("[SpawnButton] ItemData is not assigned!");
+                return;
+            }
+            
             // Start cooldown
             isOnCooldown.Value = true;
             cooldownEndTime.Value = Time.time + cooldownTime;
@@ -136,8 +142,8 @@ namespace TheButton.Interactables
             // Spawn the item
             if (ItemSpawner.Instance != null)
             {
-                ItemSpawner.Instance.SpawnItemAtTransform(itemIdToSpawn, spawnPoint);
-                Debug.Log($"[SpawnButton] Spawned item {itemIdToSpawn}");
+                ItemSpawner.Instance.SpawnItemAtTransform(itemToSpawn, spawnPoint);
+                Debug.Log($"[SpawnButton] Spawned item {itemToSpawn.itemName}");
             }
             else
             {

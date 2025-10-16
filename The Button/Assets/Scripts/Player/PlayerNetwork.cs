@@ -1,6 +1,7 @@
 using Unity.Netcode;
 using UnityEngine;
 using TMPro;
+using TheButton.Network;
 
 namespace TheButton.Player
 {
@@ -168,37 +169,6 @@ namespace TheButton.Player
             
             Debug.Log($"[PlayerNetwork] Reset stats for Player {OwnerClientId}");
         }
-    }
-
-    // Custom struct for network string
-    public struct NetworkString : INetworkSerializable
-    {
-        private string value;
-
-        // Constructor to ensure value is never null
-        public NetworkString(string value = "")
-        {
-            this.value = value ?? string.Empty;
-        }
-
-        public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
-        {
-            // Ensure value is never null during serialization
-            if (serializer.IsWriter && value == null)
-            {
-                value = string.Empty;
-            }
-            
-            serializer.SerializeValue(ref value);
-        }
-
-        public override string ToString()
-        {
-            return value ?? "";
-        }
-
-        public static implicit operator string(NetworkString ns) => ns.ToString();
-        public static implicit operator NetworkString(string s) => new NetworkString(s);
     }
 }
 

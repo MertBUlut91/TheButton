@@ -6,14 +6,11 @@ namespace TheButton.Items
     /// <summary>
     /// Server-authoritative item spawner
     /// Handles spawning of networked items at designated spawn points
+    /// Uses ItemData ScriptableObject to spawn the correct prefab
     /// </summary>
     public class ItemSpawner : NetworkBehaviour
     {
         public static ItemSpawner Instance { get; private set; }
-        
-        [Header("Item Prefab")]
-        [Tooltip("The networked item prefab to spawn")]
-        [SerializeField] private GameObject itemPrefab;
         
         private void Awake()
         {
@@ -28,7 +25,7 @@ namespace TheButton.Items
         /// <summary>
         /// Spawn an item at a specific position (Server only)
         /// </summary>
-        public void SpawnItem(int itemId, Vector3 position, Quaternion rotation)
+        public void SpawnItem(ItemData itemData, Vector3 position, Quaternion rotation)
         {
             if (!IsServer)
             {
@@ -36,20 +33,30 @@ namespace TheButton.Items
                 return;
             }
             
-            if (itemPrefab == null)
+            if (itemData == null)
             {
-                Debug.LogError("[ItemSpawner] Item prefab is not assigned!");
+                Debug.LogError("[ItemSpawner] ItemData is null!");
                 return;
             }
             
-            // Instantiate the item
-            GameObject itemObject = Instantiate(itemPrefab, position, rotation);
+            if (itemData.itemPrefab == null)
+            {
+                Debug.LogError($"[ItemSpawner] ItemData '{itemData.itemName}' does not have an itemPrefab assigned!");
+                return;
+            }
             
-            // Get the WorldItem component and set its ID
+            // Instantiate the item prefab from ItemData
+            GameObject itemObject = Instantiate(itemData.itemPrefab, position, rotation);
+            
+            // Get the WorldItem component and set its ItemData
             WorldItem worldItem = itemObject.GetComponent<WorldItem>();
             if (worldItem != null)
             {
-                worldItem.SetItemId(itemId);
+                worldItem.SetItemData(itemData);
+            }
+            else
+            {
+                Debug.LogWarning($"[ItemSpawner] Spawned prefab '{itemData.itemPrefab.name}' does not have WorldItem component!");
             }
             
             // Get NetworkObject and spawn it
@@ -57,11 +64,11 @@ namespace TheButton.Items
             if (networkObject != null)
             {
                 networkObject.Spawn(true);
-                Debug.Log($"[ItemSpawner] Spawned item {itemId} at {position}");
+                Debug.Log($"[ItemSpawner] Spawned item '{itemData.itemName}' at {position}");
             }
             else
             {
-                Debug.LogError("[ItemSpawner] Item prefab does not have NetworkObject component!");
+                Debug.LogError($"[ItemSpawner] Item prefab '{itemData.itemPrefab.name}' does not have NetworkObject component!");
                 Destroy(itemObject);
             }
         }
@@ -69,10 +76,15 @@ namespace TheButton.Items
         /// <summary>
         /// Spawn an item at a specific transform (Server only)
         /// </summary>
-        public void SpawnItemAtTransform(int itemId, Transform spawnPoint)
+        public void SpawnItemAtTransform(ItemData itemData, Transform spawnPoint)
         {
-            SpawnItem(itemId, spawnPoint.position, spawnPoint.rotation);
+            if (spawnPoint == null)
+            {
+                Debug.LogError("[ItemSpawner] Spawn point is null!");
+                return;
+            }
+            
+            SpawnItem(itemData, spawnPoint.position, spawnPoint.rotation);
         }
     }
 }
-

@@ -1,51 +1,62 @@
 using Unity.Netcode;
 using UnityEngine;
+using TheButton.Network;
+using TheButton.Interactables;
 
 namespace TheButton.Items
 {
     /// <summary>
     /// Represents an item in the 3D world that can be picked up by players
-    /// Must have NetworkObject component and a Collider (isTrigger = true)
+    /// Must have NetworkObject, Collider, and Rigidbody
+    /// Uses ItemData ScriptableObject for all properties
+    /// Pickup with "E" key interaction
     /// </summary>
     [RequireComponent(typeof(NetworkObject))]
     [RequireComponent(typeof(Collider))]
-    public class WorldItem : NetworkBehaviour
+    [RequireComponent(typeof(Rigidbody))]
+    public class WorldItem : NetworkBehaviour, IInteractable
     {
         [Header("Item Configuration")]
-        [Tooltip("The ID of the item this represents")]
-        [SerializeField] private int itemId;
+        [Tooltip("The ItemData ScriptableObject this item represents")]
+        [SerializeField] private ItemData itemData;
         
         [Header("Visual Settings")]
         [Tooltip("The visual mesh renderer")]
         [SerializeField] private MeshRenderer meshRenderer;
         
-        [Tooltip("Rotation speed for visual effect")]
-        [SerializeField] private float rotationSpeed = 50f;
+        [Header("Physics Settings")]
+        [Tooltip("Rigidbody component (auto-assigned)")]
+        [SerializeField] private Rigidbody rb;
         
-        [Tooltip("Bob animation speed")]
-        [SerializeField] private float bobSpeed = 2f;
-        
-        [Tooltip("Bob animation height")]
-        [SerializeField] private float bobHeight = 0.2f;
-        
-        private NetworkVariable<int> networkItemId = new NetworkVariable<int>(
-            0, 
+        // Network sync: Store asset name for clients to load
+        private NetworkVariable<NetworkString> itemDataAssetName = new NetworkVariable<NetworkString>(
+            new NetworkString(""), 
             NetworkVariableReadPermission.Everyone, 
             NetworkVariableWritePermission.Server
         );
         
-        private Vector3 startPosition;
         private bool isBeingPickedUp = false;
         
-        public int ItemId => networkItemId.Value;
+        public ItemData GetItemData() => itemData;
         
         private void Awake()
         {
-            // Ensure collider is trigger
+            // Auto-find components
+            if (rb == null)
+            {
+                rb = GetComponent<Rigidbody>();
+            }
+            
+            if (meshRenderer == null)
+            {
+                meshRenderer = GetComponentInChildren<MeshRenderer>();
+            }
+            
+            // Ensure collider is NOT trigger (for physics)
             var collider = GetComponent<Collider>();
             if (collider != null)
             {
-                collider.isTrigger = true;
+                collider.isTrigger = false;
             }
         }
         
@@ -53,111 +64,151 @@ namespace TheButton.Items
         {
             base.OnNetworkSpawn();
             
-            if (IsServer)
+            // Subscribe to network variable changes
+            itemDataAssetName.OnValueChanged += OnItemDataAssetNameChanged;
+            
+            // Apply visual properties
+            if (itemData != null)
             {
-                networkItemId.Value = itemId;
+                ApplyItemData();
             }
-            
-            startPosition = transform.position;
-            
-            // Apply visual properties from item database
-            ApplyItemVisuals();
-            
-            networkItemId.OnValueChanged += OnItemIdChanged;
+            else if (!IsServer && !string.IsNullOrEmpty(itemDataAssetName.Value))
+            {
+                // Client: Load ItemData from Resources
+                LoadItemDataFromAssetName(itemDataAssetName.Value);
+            }
         }
         
         public override void OnNetworkDespawn()
         {
             base.OnNetworkDespawn();
-            networkItemId.OnValueChanged -= OnItemIdChanged;
-        }
-        
-        private void Update()
-        {
-            if (!isBeingPickedUp)
-            {
-                // Rotate the item
-                transform.Rotate(Vector3.up, rotationSpeed * Time.deltaTime);
-                
-                // Bob up and down
-                float newY = startPosition.y + Mathf.Sin(Time.time * bobSpeed) * bobHeight;
-                transform.position = new Vector3(transform.position.x, newY, transform.position.z);
-            }
+            itemDataAssetName.OnValueChanged -= OnItemDataAssetNameChanged;
         }
         
         /// <summary>
-        /// Set the item ID (Server only)
+        /// Set the item data (Server only)
         /// </summary>
-        public void SetItemId(int id)
+        public void SetItemData(ItemData data)
         {
             if (!IsServer)
             {
-                Debug.LogWarning("[WorldItem] SetItemId can only be called on server!");
+                Debug.LogWarning("[WorldItem] SetItemData can only be called on server!");
                 return;
             }
             
-            itemId = id;
-            networkItemId.Value = id;
-            ApplyItemVisuals();
-        }
-        
-        private void OnItemIdChanged(int oldValue, int newValue)
-        {
-            ApplyItemVisuals();
-        }
-        
-        private void ApplyItemVisuals()
-        {
-            ItemData itemData = ItemDatabase.Instance?.GetItem(networkItemId.Value);
-            if (itemData != null && meshRenderer != null)
+            if (data == null)
             {
-                // Apply material if specified
-                if (itemData.worldMaterial != null)
-                {
-                    meshRenderer.material = itemData.worldMaterial;
-                }
-                
-                // Apply color tint
-                meshRenderer.material.color = itemData.itemColor;
+                Debug.LogError("[WorldItem] Attempted to set null ItemData!");
+                return;
+            }
+            
+            itemData = data;
+            itemDataAssetName.Value = new NetworkString(data.name);
+            ApplyItemData();
+            
+            Debug.Log($"[WorldItem] Set ItemData to {data.itemName} (asset: {data.name})");
+        }
+        
+        private void OnItemDataAssetNameChanged(NetworkString oldValue, NetworkString newValue)
+        {
+            // Client: Load ItemData when network variable changes
+            if (!IsServer && !string.IsNullOrEmpty(newValue))
+            {
+                LoadItemDataFromAssetName(newValue);
             }
         }
         
-        private void OnTriggerEnter(Collider other)
+        private void LoadItemDataFromAssetName(string assetName)
+        {
+            // Load from Resources/Items/ folder
+            itemData = Resources.Load<ItemData>($"Items/{assetName}");
+            
+            if (itemData != null)
+            {
+                ApplyItemData();
+                Debug.Log($"[WorldItem] Loaded ItemData: {itemData.itemName} from Resources");
+            }
+            else
+            {
+                Debug.LogError($"[WorldItem] Failed to load ItemData from Resources/Items/{assetName}");
+            }
+        }
+        
+        private void ApplyItemData()
+        {
+            if (itemData == null) return;
+            
+            // Apply physics properties
+            if (rb != null)
+            {
+                rb.mass = itemData.weight;
+                rb.useGravity = true;
+                rb.isKinematic = false;
+            }
+        }
+        
+        #region IInteractable Implementation
+        
+        public void Interact(GameObject playerGameObject)
         {
             // Only server handles pickup logic
             if (!IsServer) return;
             if (isBeingPickedUp) return;
+            if (itemData == null) return;
             
-            // Check if the collider is a player
-            var playerInventory = other.GetComponent<Player.PlayerInventory>();
-            if (playerInventory != null && playerInventory.IsOwner)
+            // Get player inventory
+            var playerInventory = playerGameObject.GetComponent<Player.PlayerInventory>();
+            if (playerInventory == null || !playerInventory.IsOwner)
             {
-                // Try to add item to player's inventory
-                if (!playerInventory.IsFull())
-                {
-                    Debug.Log($"[WorldItem] Player picked up item {networkItemId.Value}");
-                    
-                    // Add item to inventory
-                    playerInventory.AddItemServerRpc(networkItemId.Value);
-                    
-                    // Mark as being picked up to prevent double pickup
-                    isBeingPickedUp = true;
-                    
-                    // Despawn the item
-                    GetComponent<NetworkObject>().Despawn(true);
-                }
-                else
-                {
-                    Debug.Log($"[WorldItem] Player's inventory is full!");
-                    // Could show UI message here
-                }
+                Debug.LogWarning("[WorldItem] Player has no inventory component!");
+                return;
+            }
+            
+            // Try to add item to player's inventory
+            if (!playerInventory.IsFull())
+            {
+                Debug.Log($"[WorldItem] Player picked up {itemData.itemName}");
+                
+                // Add item to inventory (pass ItemData asset name)
+                playerInventory.AddItemServerRpc(itemData.name);
+                
+                // Mark as being picked up to prevent double pickup
+                isBeingPickedUp = true;
+                
+                // Despawn the item
+                GetComponent<NetworkObject>().Despawn(true);
+            }
+            else
+            {
+                Debug.Log($"[WorldItem] Player's inventory is full!");
+                // Could show UI message here
             }
         }
+        
+        public string GetInteractionPrompt()
+        {
+            if (itemData == null)
+                return "Press E to pick up";
+            
+            return $"Press E to pick up {itemData.itemName}";
+        }
+        
+        public bool CanInteract()
+        {
+            return itemData != null && !isBeingPickedUp;
+        }
+        
+        #endregion
         
 #if UNITY_EDITOR
         private void OnValidate()
         {
-            // Auto-find mesh renderer if not set
+            // Auto-find components if not set
+            if (rb == null)
+            {
+                rb = GetComponent<Rigidbody>();
+            }
+            
             if (meshRenderer == null)
             {
                 meshRenderer = GetComponentInChildren<MeshRenderer>();
@@ -166,4 +217,3 @@ namespace TheButton.Items
 #endif
     }
 }
-

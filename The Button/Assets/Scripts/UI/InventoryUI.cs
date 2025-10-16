@@ -105,38 +105,28 @@ namespace TheButton.UI
                 var itemIcon = slotObjects[i].transform.Find("ItemIcon")?.GetComponent<Image>();
                 var itemText = slotObjects[i].transform.Find("ItemText")?.GetComponent<TextMeshProUGUI>();
 
-                if (i < items.Count && items[i] != -1)
+                if (i < items.Count && items[i] != null)
                 {
                     // Slot has an item
-                    ItemData itemData = ItemDatabase.Instance?.GetItem(items[i]);
+                    ItemData itemData = items[i];
                     
                     if (itemIcon != null)
                     {
                         itemIcon.enabled = true;
                         
                         // Set item sprite/icon if available
-                        if (itemData != null && itemData.icon != null)
+                        if (itemData.icon != null)
                         {
                             itemIcon.sprite = itemData.icon;
                         }
                         
-                        // Set color based on item type
-                        if (itemData != null)
-                        {
-                            itemIcon.color = GetItemTypeColor(itemData.itemType);
-                        }
+                        // Set color based on item category
+                        itemIcon.color = GetItemCategoryColor(itemData.category);
                     }
                     
                     if (itemText != null)
                     {
-                        if (itemData != null)
-                        {
-                            itemText.text = itemData.itemName;
-                        }
-                        else
-                        {
-                            itemText.text = $"Item {items[i]}";
-                        }
+                        itemText.text = itemData.itemName;
                     }
                 }
                 else
@@ -170,10 +160,10 @@ namespace TheButton.UI
         {
             if (playerInventory == null) return;
             
-            int itemId = playerInventory.GetItemAtSlot(slotIndex);
-            if (itemId == -1) return;
+            ItemData itemData = playerInventory.GetItemAtSlot(slotIndex);
+            if (itemData == null) return;
 
-            Debug.Log($"[InventoryUI] Using item in slot {slotIndex}: {GetItemName(itemId)}");
+            Debug.Log($"[InventoryUI] Using item in slot {slotIndex}: {itemData.itemName}");
             playerInventory.UseItemServerRpc(slotIndex);
         }
 
@@ -182,21 +172,25 @@ namespace TheButton.UI
             UpdateInventoryDisplay();
         }
 
-        private string GetItemName(int itemId)
+        private string GetItemName(ItemData itemData)
         {
-            ItemData itemData = ItemDatabase.Instance?.GetItem(itemId);
-            return itemData != null ? itemData.itemName : $"Item {itemId}";
+            return itemData != null ? itemData.itemName : "Unknown";
         }
         
         private Color GetItemTypeColor(ItemType itemType)
         {
-            return itemType switch
+            // Use simpler category-based coloring
+            return Color.white;  // Simple white for all items
+        }
+        
+        private Color GetItemCategoryColor(ItemCategory category)
+        {
+            return category switch
             {
-                ItemType.Key => Color.yellow,
-                ItemType.Medkit => Color.green,
-                ItemType.Food => new Color(1f, 0.5f, 0f), // Orange
-                ItemType.Water => Color.cyan,
-                ItemType.Hazard => Color.red,
+                ItemCategory.Consumable => Color.green,      // Green for consumables
+                ItemCategory.Collectible => Color.cyan,      // Cyan for collectibles
+                ItemCategory.Usable => Color.yellow,         // Yellow for tools
+                ItemCategory.Key => new Color(1f, 0.8f, 0f), // Gold for keys
                 _ => Color.white
             };
         }

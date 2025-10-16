@@ -1,15 +1,38 @@
 namespace TheButton.Items
 {
     /// <summary>
-    /// Defines the types of items that can exist in the game
+    /// Defines specific types of items
+    /// Used for specific gameplay effects
     /// </summary>
     public enum ItemType
     {
-        Key,      // Opens the exit door
-        Medkit,   // Restores health
-        Food,     // Restores hunger
-        Water,    // Restores thirst
-        Hazard    // Damages player or has negative effect
+        // Consumables
+        Food,           // Restores hunger
+        Water,          // Restores thirst
+        Medkit,         // Restores health
+        Bandage,        // Small health restore
+        EnergyDrink,    // Restores stamina
+        Poison,         // Damages player
+        
+        // Collectibles (Furniture & Decoration)
+        Chair,
+        Table,
+        Lamp,
+        Picture,
+        Plant,
+        Box,
+        Barrel,
+        
+        // Usable Tools
+        Key,            // Opens doors
+        Screwdriver,    // Repair/interact
+        Pen,            // Write/interact
+        Flashlight,     // Light source
+        Wrench,         // Repair
+        Hammer,         // Break/build
+        
+        // Generic
+        Generic         // Default item type
     }
 }
 

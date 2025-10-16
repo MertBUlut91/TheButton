@@ -2,12 +2,14 @@ using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 using TheButton.Items;
+using TheButton.Network;
 
 namespace TheButton.Player
 {
     /// <summary>
     /// Manages player inventory (4-5 slots)
     /// Handles item storage, usage, and synchronization across network
+    /// Uses ItemData ScriptableObject references
     /// </summary>
     public class PlayerInventory : NetworkBehaviour
     {
@@ -18,8 +20,11 @@ namespace TheButton.Player
         [Tooltip("Reference to PlayerNetwork for stat modifications")]
         [SerializeField] private PlayerNetwork playerNetwork;
 
-        // Network list for synchronized inventory
-        private NetworkList<int> inventoryItems;
+        // Network sync: Store asset names of items
+        private NetworkList<NetworkString> inventoryItemNames;
+        
+        // Local cache: Actual ItemData references
+        private List<ItemData> inventoryItems = new List<ItemData>();
 
         public event System.Action OnInventoryChanged;
         
@@ -28,7 +33,7 @@ namespace TheButton.Player
 
         private void Awake()
         {
-            inventoryItems = new NetworkList<int>();
+            inventoryItemNames = new NetworkList<NetworkString>();
             
             // Auto-find PlayerNetwork if not assigned
             if (playerNetwork == null)
@@ -43,8 +48,11 @@ namespace TheButton.Player
             
             if (IsOwner)
             {
-                inventoryItems.OnListChanged += OnInventoryListChanged;
+                inventoryItemNames.OnListChanged += OnInventoryListChanged;
             }
+            
+            // Initial load of inventory from network list
+            RebuildLocalInventory();
         }
 
         public override void OnNetworkDespawn()
@@ -53,26 +61,25 @@ namespace TheButton.Player
             
             if (IsOwner)
             {
-                inventoryItems.OnListChanged -= OnInventoryListChanged;
+                inventoryItemNames.OnListChanged -= OnInventoryListChanged;
             }
         }
 
         /// <summary>
         /// Attempt to add an item to inventory
         /// </summary>
-        /// <param name="itemId">The ID of the item to add</param>
-        /// <returns>True if item was added successfully</returns>
+        /// <param name="itemDataAssetName">The asset name of the ItemData to add</param>
         [ServerRpc(RequireOwnership = false)]
-        public void AddItemServerRpc(int itemId)
+        public void AddItemServerRpc(string itemDataAssetName)
         {
-            if (inventoryItems.Count >= maxSlots)
+            if (inventoryItemNames.Count >= maxSlots)
             {
-                Debug.LogWarning($"[Inventory] Inventory is full! Cannot add item {itemId}");
+                Debug.LogWarning($"[Inventory] Inventory is full! Cannot add item {itemDataAssetName}");
                 return;
             }
 
-            inventoryItems.Add(itemId);
-            Debug.Log($"[Inventory] Added item {itemId} to inventory");
+            inventoryItemNames.Add(new NetworkString(itemDataAssetName));
+            Debug.Log($"[Inventory] Added item {itemDataAssetName} to inventory");
         }
 
         /// <summary>
@@ -81,15 +88,15 @@ namespace TheButton.Player
         [ServerRpc(RequireOwnership = false)]
         public void RemoveItemAtSlotServerRpc(int slotIndex)
         {
-            if (slotIndex < 0 || slotIndex >= inventoryItems.Count)
+            if (slotIndex < 0 || slotIndex >= inventoryItemNames.Count)
             {
                 Debug.LogWarning($"[Inventory] Invalid slot index: {slotIndex}");
                 return;
             }
 
-            int itemId = inventoryItems[slotIndex];
-            inventoryItems.RemoveAt(slotIndex);
-            Debug.Log($"[Inventory] Removed item {itemId} from slot {slotIndex}");
+            string itemName = inventoryItemNames[slotIndex].ToString();
+            inventoryItemNames.RemoveAt(slotIndex);
+            Debug.Log($"[Inventory] Removed item {itemName} from slot {slotIndex}");
         }
 
         /// <summary>
@@ -98,78 +105,124 @@ namespace TheButton.Player
         [ServerRpc(RequireOwnership = false)]
         public void UseItemServerRpc(int slotIndex)
         {
-            if (slotIndex < 0 || slotIndex >= inventoryItems.Count)
+            if (slotIndex < 0 || slotIndex >= inventoryItemNames.Count)
             {
                 Debug.LogWarning($"[Inventory] Invalid slot index: {slotIndex}");
                 return;
             }
 
-            int itemId = inventoryItems[slotIndex];
+            string itemDataAssetName = inventoryItemNames[slotIndex].ToString();
             
-            // Get item data from database
-            ItemData itemData = ItemDatabase.Instance?.GetItem(itemId);
+            // Load item data from Resources
+            ItemData itemData = Resources.Load<ItemData>($"Items/{itemDataAssetName}");
             if (itemData == null)
             {
-                Debug.LogWarning($"[Inventory] Item {itemId} not found in database!");
-                inventoryItems.RemoveAt(slotIndex);
+                Debug.LogWarning($"[Inventory] Item '{itemDataAssetName}' not found in Resources/Items/!");
+                inventoryItemNames.RemoveAt(slotIndex);
                 return;
             }
             
-            Debug.Log($"[Inventory] Using item {itemData.itemName} (ID: {itemId}) from slot {slotIndex}");
+            Debug.Log($"[Inventory] Using item {itemData.itemName} from slot {slotIndex}");
             
-            // Apply item effects based on type
-            bool consumeItem = true;
+            // Apply item effects based on category
+            bool consumeItem = false;
             
-            switch (itemData.itemType)
+            switch (itemData.category)
             {
-                case ItemType.Medkit:
-                    if (playerNetwork != null)
-                    {
-                        playerNetwork.ModifyHealthServerRpc(itemData.healthRestore);
-                        Debug.Log($"[Inventory] Restored {itemData.healthRestore} health");
-                    }
+                case ItemCategory.Consumable:
+                    UseConsumable(itemData);
+                    consumeItem = true;  // Consumables are removed after use
                     break;
                     
-                case ItemType.Food:
-                    if (playerNetwork != null)
-                    {
-                        playerNetwork.ModifyHungerServerRpc(itemData.hungerRestore);
-                        Debug.Log($"[Inventory] Restored {itemData.hungerRestore} hunger");
-                    }
+                case ItemCategory.Key:
+                    UseKey(itemData);
+                    consumeItem = true;  // Keys are consumed when used on doors
                     break;
                     
-                case ItemType.Water:
-                    if (playerNetwork != null)
-                    {
-                        playerNetwork.ModifyThirstServerRpc(itemData.thirstRestore);
-                        Debug.Log($"[Inventory] Restored {itemData.thirstRestore} thirst");
-                    }
+                case ItemCategory.Usable:
+                    UseUsable(itemData);
+                    consumeItem = false;  // Usables stay in inventory
                     break;
                     
-                case ItemType.Key:
-                    // Notify that key was used (door will listen to this)
-                    NotifyKeyUsedClientRpc();
-                    Debug.Log($"[Inventory] Key used");
-                    break;
-                    
-                case ItemType.Hazard:
-                    if (playerNetwork != null)
-                    {
-                        playerNetwork.ModifyHealthServerRpc(-itemData.damageAmount);
-                        Debug.Log($"[Inventory] Took {itemData.damageAmount} damage from hazard item!");
-                    }
+                case ItemCategory.Collectible:
+                    // Collectibles need to be placed in world, not "used" from inventory
+                    Debug.Log($"[Inventory] {itemData.itemName} is a collectible. Use place mode to place it.");
+                    consumeItem = false;
                     break;
                     
                 default:
-                    Debug.LogWarning($"[Inventory] Unknown item type: {itemData.itemType}");
+                    Debug.LogWarning($"[Inventory] Unknown item category: {itemData.category}");
                     break;
             }
             
             // Remove the item from inventory if it was consumed
             if (consumeItem)
             {
-                inventoryItems.RemoveAt(slotIndex);
+                inventoryItemNames.RemoveAt(slotIndex);
             }
+        }
+        
+        /// <summary>
+        /// Use a consumable item (food, water, medkit, etc.)
+        /// </summary>
+        private void UseConsumable(ItemData itemData)
+        {
+            if (playerNetwork == null) return;
+            
+            // Apply health effects
+            if (itemData.healthRestore > 0)
+            {
+                playerNetwork.ModifyHealthServerRpc(itemData.healthRestore);
+                Debug.Log($"[Inventory] Restored {itemData.healthRestore} health");
+            }
+            
+            // Apply hunger effects
+            if (itemData.hungerRestore > 0)
+            {
+                playerNetwork.ModifyHungerServerRpc(itemData.hungerRestore);
+                Debug.Log($"[Inventory] Restored {itemData.hungerRestore} hunger");
+            }
+            
+            // Apply thirst effects
+            if (itemData.thirstRestore > 0)
+            {
+                playerNetwork.ModifyThirstServerRpc(itemData.thirstRestore);
+                Debug.Log($"[Inventory] Restored {itemData.thirstRestore} thirst");
+            }
+            
+            // Apply stamina effects
+            if (itemData.staminaRestore > 0)
+            {
+                playerNetwork.ModifyStaminaServerRpc(itemData.staminaRestore);
+                Debug.Log($"[Inventory] Restored {itemData.staminaRestore} stamina");
+            }
+            
+            // Apply damage (for poison/hazard consumables)
+            if (itemData.damageAmount > 0)
+            {
+                playerNetwork.ModifyHealthServerRpc(-itemData.damageAmount);
+                Debug.Log($"[Inventory] Took {itemData.damageAmount} damage!");
+            }
+        }
+        
+        /// <summary>
+        /// Use a key item
+        /// </summary>
+        private void UseKey(ItemData itemData)
+        {
+            Debug.Log($"[Inventory] Using key: {itemData.itemName}");
+            NotifyKeyUsedClientRpc();
+        }
+        
+        /// <summary>
+        /// Use a usable item (tools, etc.)
+        /// </summary>
+        private void UseUsable(ItemData itemData)
+        {
+            Debug.Log($"[Inventory] Using tool: {itemData.itemName}");
+            // TODO: Implement tool usage logic
+            // For now, just log
+            // Future: Enable hand model, allow interactions, etc.
         }
         
         [ClientRpc]
@@ -183,7 +236,7 @@ namespace TheButton.Player
         /// </summary>
         public int GetItemCount()
         {
-            return inventoryItems.Count;
+            return inventoryItemNames.Count;
         }
 
         /// <summary>
@@ -191,31 +244,26 @@ namespace TheButton.Player
         /// </summary>
         public bool IsFull()
         {
-            return inventoryItems.Count >= maxSlots;
+            return inventoryItemNames.Count >= maxSlots;
         }
 
         /// <summary>
-        /// Get item ID at specific slot
+        /// Get ItemData at specific slot (from local cache)
         /// </summary>
-        public int GetItemAtSlot(int slotIndex)
+        public ItemData GetItemAtSlot(int slotIndex)
         {
             if (slotIndex < 0 || slotIndex >= inventoryItems.Count)
-                return -1;
+                return null;
             
             return inventoryItems[slotIndex];
         }
 
         /// <summary>
-        /// Get all items in inventory
+        /// Get all items in inventory (from local cache)
         /// </summary>
-        public List<int> GetAllItems()
+        public List<ItemData> GetAllItems()
         {
-            List<int> items = new List<int>();
-            foreach (var item in inventoryItems)
-            {
-                items.Add(item);
-            }
-            return items;
+            return new List<ItemData>(inventoryItems);
         }
 
         /// <summary>
@@ -224,13 +272,38 @@ namespace TheButton.Player
         [ServerRpc(RequireOwnership = false)]
         public void ClearInventoryServerRpc()
         {
-            inventoryItems.Clear();
+            inventoryItemNames.Clear();
             Debug.Log("[Inventory] Cleared inventory");
         }
 
-        private void OnInventoryListChanged(NetworkListEvent<int> changeEvent)
+        private void OnInventoryListChanged(NetworkListEvent<NetworkString> changeEvent)
         {
+            RebuildLocalInventory();
             OnInventoryChanged?.Invoke();
+        }
+        
+        /// <summary>
+        /// Rebuild local inventory cache from network list
+        /// </summary>
+        private void RebuildLocalInventory()
+        {
+            inventoryItems.Clear();
+            
+            foreach (var itemName in inventoryItemNames)
+            {
+                string assetName = itemName.ToString();
+                ItemData itemData = Resources.Load<ItemData>($"Items/{assetName}");
+                
+                if (itemData != null)
+                {
+                    inventoryItems.Add(itemData);
+                }
+                else
+                {
+                    Debug.LogWarning($"[Inventory] Failed to load ItemData from Resources/Items/{assetName}");
+                    inventoryItems.Add(null); // Keep slot count consistent
+                }
+            }
         }
         
         /// <summary>
@@ -238,9 +311,8 @@ namespace TheButton.Player
         /// </summary>
         public bool HasItemOfType(ItemType itemType)
         {
-            foreach (int itemId in inventoryItems)
+            foreach (var itemData in inventoryItems)
             {
-                ItemData itemData = ItemDatabase.Instance?.GetItem(itemId);
                 if (itemData != null && itemData.itemType == itemType)
                 {
                     return true;
@@ -250,14 +322,43 @@ namespace TheButton.Player
         }
         
         /// <summary>
-        /// Get the first item of a specific type
+        /// Check if player has a specific item category
+        /// </summary>
+        public bool HasItemOfCategory(ItemCategory category)
+        {
+            foreach (var itemData in inventoryItems)
+            {
+                if (itemData != null && itemData.category == category)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        
+        /// <summary>
+        /// Get the first item of a specific type (returns slot index)
         /// </summary>
         public int GetFirstItemOfType(ItemType itemType)
         {
             for (int i = 0; i < inventoryItems.Count; i++)
             {
-                ItemData itemData = ItemDatabase.Instance?.GetItem(inventoryItems[i]);
-                if (itemData != null && itemData.itemType == itemType)
+                if (inventoryItems[i] != null && inventoryItems[i].itemType == itemType)
+                {
+                    return i; // Return slot index
+                }
+            }
+            return -1;
+        }
+        
+        /// <summary>
+        /// Get the first item of a specific category (returns slot index)
+        /// </summary>
+        public int GetFirstItemOfCategory(ItemCategory category)
+        {
+            for (int i = 0; i < inventoryItems.Count; i++)
+            {
+                if (inventoryItems[i] != null && inventoryItems[i].category == category)
                 {
                     return i; // Return slot index
                 }
@@ -266,4 +367,3 @@ namespace TheButton.Player
         }
     }
 }
-
