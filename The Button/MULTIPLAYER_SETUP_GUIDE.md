@@ -55,6 +55,7 @@ You need to add the Lobby package:
    - Set **Transport** to the UnityTransport component
    - Under **NetworkConfig**:
      - Enable **Enable Scene Management**
+     - Enable **Connection Approval** (important for preventing early spawning)
 
 #### MainMenu Canvas Setup
 1. Create UI Canvas: `GameObject > UI > Canvas`
@@ -240,11 +241,23 @@ Select `GameRoomCanvas`, connect all sliders and texts to the **PlayerStatsUI** 
 
 ### Configure Build Settings
 
+**IMPORTANT**: Both Host and Client MUST have the exact same scenes in Build Settings!
+
 1. Go to **File > Build Settings**
-2. Add scenes in order:
-   - **0**: MainMenu
-   - **1**: GameRoom
-3. Click **Add Open Scenes** when each is open
+2. **Clear all scenes** from the list first (select and delete)
+3. Open **MainMenu** scene in Hierarchy
+4. Click **Add Open Scenes** (MainMenu should be at index 0)
+5. Open **GameRoom** scene in Hierarchy
+6. Click **Add Open Scenes** (GameRoom should be at index 1)
+
+**Final Build Settings should look like this:**
+```
+✓ Scenes In Build:
+  [0] Scenes/MainMenu
+  [1] Scenes/GameRoom
+```
+
+**⚠️ Critical**: After changing Build Settings, you MUST rebuild the game if testing with builds!
 
 ## Part 4: Testing
 
@@ -262,10 +275,24 @@ Select `GameRoomCanvas`, connect all sliders and texts to the **PlayerStatsUI** 
 4. Test lobby creation and joining
 
 ### Build and Test
-1. Build the game: **File > Build and Run**
-2. Run one instance as Host (Create Lobby)
-3. Run another as Client (Join by Code)
-4. Share the 6-digit code between instances
+**CRITICAL**: Make sure Build Settings are correct before building!
+
+1. **Verify Build Settings**:
+   - Go to **File > Build Settings**
+   - Ensure both MainMenu (0) and GameRoom (1) are in the list
+   
+2. **Build the game**: **File > Build and Run**
+   - Build once, copy to different folders for testing
+   - OR use ParrelSync plugin to clone the project
+   
+3. **Test**:
+   - Run first instance as Host (Create Lobby)
+   - Run second instance as Client (Join by Code)
+   - Share the 6-digit lobby code
+   
+4. **If you get scene hash errors**: 
+   - Both instances must be from the SAME build
+   - Rebuild if you changed scenes or Build Settings
 
 ## Part 5: Advanced Configuration
 
@@ -278,9 +305,40 @@ In NetworkSetup > UnityTransport:
 ### Network Manager Settings
 - Player Prefab: Set to Player prefab
 - Enable Scene Management: ✓
-- Connection Approval: ✗ (for now)
+- Connection Approval: ✓ (required to prevent early player spawning)
 
 ## Troubleshooting
+
+### "Scene Hash does not exist in the HashToBuildIndex table"
+**Common error when using Multiplayer Play Mode or different builds.**
+
+**This error can happen in two scenarios:**
+
+**Scenario 1: Testing with Builds**
+- Scenes not added to Build Settings
+- Host and Client have different scene order
+- Old build running (rebuild needed)
+- Scene paths don't match between Host and Client
+
+**Solution for Builds:**
+1. Go to **File > Build Settings**
+2. Delete all scenes from the list
+3. Add scenes in exact order:
+   - First: MainMenu (index 0)
+   - Second: GameRoom (index 1)
+4. **Rebuild both Host and Client** with same project state
+5. Verify both scenes have the exact same path
+
+**Scenario 2: Using Multiplayer Play Mode (lobby join error)**
+- NetworkManager tries to sync MainMenu scene when client joins lobby
+- This is prevented by `VerifySceneBeforeLoading` callback in NetworkManagerSetup
+- The error should be blocked automatically
+
+**Solution for Multiplayer Play Mode:**
+- The NetworkManagerSetup script now includes scene verification
+- Only GameRoom scene will be synchronized
+- MainMenu synchronization is blocked (clients already in MainMenu)
+- If you still see this error, verify NetworkManagerSetup script is attached to NetworkSetup GameObject
 
 ### "Relay not initialized"
 - Make sure you've enabled Relay service in Unity Dashboard
@@ -291,10 +349,31 @@ In NetworkSetup > UnityTransport:
 - Make sure host is still connected
 - Code is case-sensitive (should be uppercase)
 
-### Players not spawning
+### Players spawning in lobby (before Start Game)
+- Make sure **Connection Approval** is enabled in NetworkManager
+- NetworkManagerSetup script handles spawn prevention until game starts
+- Players should only spawn after clicking "Start Game" and loading GameRoom scene
+
+### NullReferenceException during player spawn (client gets no visuals)
+**Error: "NullReferenceException: Object reference not set to an instance of an object" in NetworkString.NetworkSerialize**
+
+**Cause:** NetworkVariables with custom INetworkSerializable types must never have null values during serialization.
+
+**Solution:** The PlayerNetwork.cs NetworkString struct has been updated to handle null values:
+- Constructor initializes with empty string
+- Serialization checks for null and replaces with empty string
+- NetworkVariable is initialized with `new NetworkString("")`
+
+**If you still see this error:**
+1. Check that PlayerNetwork.cs NetworkString has a constructor with default empty string
+2. Verify playerName NetworkVariable is initialized properly
+3. Make sure all custom INetworkSerializable structs handle null values
+
+### Players not spawning in GameRoom
 - Ensure Player prefab is in NetworkManager's prefab list
 - Check that NetworkObject component is on Player prefab
 - Verify GameRoom scene is in Build Settings
+- Check that spawn points are tagged with "Respawn"
 
 ### Camera issues
 - Only local player's camera should be enabled
@@ -315,6 +394,8 @@ After completing this setup:
 - Host migration is not implemented yet
 - Player data is synchronized via NetworkVariables
 - Stats decay happens only on server/host
+- **Player spawning is delayed**: Players are NOT spawned when joining lobby, only when the host clicks "Start Game" and loads the GameRoom scene
+- **Scene synchronization**: MainMenu scene synchronization is blocked to prevent errors; only GameRoom scene is synchronized when host starts the game
 
 ## File Structure Created
 

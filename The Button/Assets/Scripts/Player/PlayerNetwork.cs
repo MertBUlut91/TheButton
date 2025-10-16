@@ -21,7 +21,10 @@ namespace TheButton.Player
         [SerializeField] private float thirstDecayRate = 1.5f; // per minute
         [SerializeField] private float staminaRegenRate = 20f; // per second
 
-        private NetworkVariable<NetworkString> playerName = new NetworkVariable<NetworkString>();
+        private NetworkVariable<NetworkString> playerName = new NetworkVariable<NetworkString>(
+            new NetworkString(""), // Initialize with empty string to prevent null serialization
+            NetworkVariableReadPermission.Everyone, 
+            NetworkVariableWritePermission.Server);
 
         public override void OnNetworkSpawn()
         {
@@ -139,8 +142,20 @@ namespace TheButton.Player
     {
         private string value;
 
+        // Constructor to ensure value is never null
+        public NetworkString(string value = "")
+        {
+            this.value = value ?? string.Empty;
+        }
+
         public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
         {
+            // Ensure value is never null during serialization
+            if (serializer.IsWriter && value == null)
+            {
+                value = string.Empty;
+            }
+            
             serializer.SerializeValue(ref value);
         }
 
@@ -150,7 +165,7 @@ namespace TheButton.Player
         }
 
         public static implicit operator string(NetworkString ns) => ns.ToString();
-        public static implicit operator NetworkString(string s) => new NetworkString { value = s };
+        public static implicit operator NetworkString(string s) => new NetworkString(s);
     }
 }
 
