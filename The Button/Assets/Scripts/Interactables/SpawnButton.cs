@@ -1,6 +1,7 @@
 using Unity.Netcode;
 using UnityEngine;
 using TheButton.Items;
+using TheButton.Network;
 
 namespace TheButton.Interactables
 {
@@ -51,11 +52,62 @@ namespace TheButton.Interactables
             NetworkVariableWritePermission.Server
         );
         
+        // Network sync for item data asset name
+        private NetworkVariable<NetworkString> itemDataAssetName = new NetworkVariable<NetworkString>(
+            new NetworkString(""),
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Server
+        );
+        
         private AudioSource audioSource;
         
         private void Awake()
         {
             audioSource = GetComponent<AudioSource>();
+            
+            // Auto-find button renderer if not set
+            if (buttonRenderer == null)
+            {
+                buttonRenderer = GetComponent<MeshRenderer>();
+            }
+        }
+        
+        /// <summary>
+        /// Set item data (for procedural generation)
+        /// Spawn point will be found via GlobalItemSpawnPoint tag
+        /// </summary>
+        public void SetItemData(ItemData itemData)
+        {
+            if (itemData == null)
+            {
+                Debug.LogError("[SpawnButton] SetItemData called with null ItemData!");
+                return;
+            }
+            
+            itemToSpawn = itemData;
+            
+            // Set network variable (will be synced to clients when spawned)
+            if (IsSpawned && IsServer)
+            {
+                itemDataAssetName.Value = new NetworkString(itemData.name);
+            }
+            
+            Debug.Log($"[SpawnButton] Configured to spawn {itemData.itemName} (asset: {itemData.name})");
+        }
+        
+        /// <summary>
+        /// Find the global spawn point in the scene
+        /// </summary>
+        private Transform FindGlobalSpawnPoint()
+        {
+            GameObject spawnPointObj = GameObject.FindGameObjectWithTag("ItemSpawnPoint");
+            if (spawnPointObj != null)
+            {
+                return spawnPointObj.transform;
+            }
+            
+            Debug.LogWarning("[SpawnButton] Global ItemSpawnPoint not found! Using button position.");
+            return transform;
         }
         
         public override void OnNetworkSpawn()
@@ -63,6 +115,20 @@ namespace TheButton.Interactables
             base.OnNetworkSpawn();
             
             isOnCooldown.OnValueChanged += OnCooldownChanged;
+            itemDataAssetName.OnValueChanged += OnItemDataAssetNameChanged;
+            
+            // If server, sync the item data asset name
+            if (IsServer && itemToSpawn != null)
+            {
+                itemDataAssetName.Value = new NetworkString(itemToSpawn.name);
+                Debug.Log($"[SpawnButton] Server set itemDataAssetName to: {itemToSpawn.name}");
+            }
+            // If client, load item data from asset name
+            else if (!IsServer && !string.IsNullOrEmpty(itemDataAssetName.Value))
+            {
+                LoadItemDataFromAssetName(itemDataAssetName.Value);
+            }
+            
             UpdateVisuals();
         }
         
@@ -70,6 +136,31 @@ namespace TheButton.Interactables
         {
             base.OnNetworkDespawn();
             isOnCooldown.OnValueChanged -= OnCooldownChanged;
+            itemDataAssetName.OnValueChanged -= OnItemDataAssetNameChanged;
+        }
+        
+        private void OnItemDataAssetNameChanged(NetworkString oldValue, NetworkString newValue)
+        {
+            // Client: Load ItemData when network variable changes
+            if (!IsServer && !string.IsNullOrEmpty(newValue))
+            {
+                LoadItemDataFromAssetName(newValue);
+            }
+        }
+        
+        private void LoadItemDataFromAssetName(string assetName)
+        {
+            // Load from Resources/Items/ folder
+            itemToSpawn = Resources.Load<ItemData>($"Items/{assetName}");
+            
+            if (itemToSpawn != null)
+            {
+                Debug.Log($"[SpawnButton] Client loaded ItemData: {itemToSpawn.itemName} from Resources");
+            }
+            else
+            {
+                Debug.LogError($"[SpawnButton] Client failed to load ItemData from Resources/Items/{assetName}");
+            }
         }
         
         private void Update()
@@ -111,7 +202,8 @@ namespace TheButton.Interactables
         
         public bool CanInteract()
         {
-            return !isOnCooldown.Value && spawnPoint != null;
+            // Can interact if not on cooldown and has item data
+            return !isOnCooldown.Value && itemToSpawn != null;
         }
         
         [ServerRpc(RequireOwnership = false)]
@@ -123,15 +215,21 @@ namespace TheButton.Interactables
                 return;
             }
             
-            if (spawnPoint == null)
-            {
-                Debug.LogError("[SpawnButton] Spawn point is not assigned!");
-                return;
-            }
-            
             if (itemToSpawn == null)
             {
                 Debug.LogError("[SpawnButton] ItemData is not assigned!");
+                return;
+            }
+            
+            // Find spawn point if not assigned
+            if (spawnPoint == null)
+            {
+                spawnPoint = FindGlobalSpawnPoint();
+            }
+            
+            if (spawnPoint == null)
+            {
+                Debug.LogError("[SpawnButton] Could not find spawn point!");
                 return;
             }
             
@@ -139,11 +237,11 @@ namespace TheButton.Interactables
             isOnCooldown.Value = true;
             cooldownEndTime.Value = Time.time + cooldownTime;
             
-            // Spawn the item
+            // Spawn the item at global spawn point
             if (ItemSpawner.Instance != null)
             {
                 ItemSpawner.Instance.SpawnItemAtTransform(itemToSpawn, spawnPoint);
-                Debug.Log($"[SpawnButton] Spawned item {itemToSpawn.itemName}");
+                Debug.Log($"[SpawnButton] Spawned item {itemToSpawn.itemName} at global spawn point {spawnPoint.position}");
             }
             else
             {

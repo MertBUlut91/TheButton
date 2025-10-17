@@ -23,6 +23,15 @@ namespace TheButton.Player
         [Tooltip("Layer mask for placement ground check")]
         [SerializeField] private LayerMask placementLayerMask = ~0;
         
+        [Tooltip("Layer mask for collision detection (objects to avoid overlapping with)")]
+        [SerializeField] private LayerMask collisionCheckLayerMask = ~0;
+        
+        [Tooltip("Use mesh-based collision detection (more accurate but slightly more expensive)")]
+        [SerializeField] private bool useMeshCollisionCheck = true;
+        
+        [Tooltip("Minimum distance from other objects (in meters)")]
+        [SerializeField] private float minimumClearance = 0.1f;
+        
         [Tooltip("Color of placement preview when valid")]
         [SerializeField] private Color validPlacementColor = new Color(0f, 1f, 0f, 0.5f);
         
@@ -36,6 +45,7 @@ namespace TheButton.Player
         private Quaternion placementRotation = Quaternion.identity;
         private float rotationAngle = 0f;
         private bool canPlaceAtCurrentPosition = false;
+        private Collider[] previewColliders; // Store colliders for overlap check
         
         private void Awake()
         {
@@ -191,10 +201,21 @@ namespace TheButton.Player
                 rb.useGravity = false;
             }
             
-            var colliders = placementPreview.GetComponentsInChildren<Collider>(true);
-            foreach (var col in colliders)
+            // Store colliders for collision checking but configure them as triggers
+            previewColliders = placementPreview.GetComponentsInChildren<Collider>(true);
+            foreach (var col in previewColliders)
             {
-                col.enabled = false; // Disable colliders completely for preview
+                if (useMeshCollisionCheck)
+                {
+                    // Enable colliders as triggers for overlap detection
+                    col.enabled = true;
+                    col.isTrigger = true;
+                }
+                else
+                {
+                    // Disable colliders completely for simpler raycast-only mode
+                    col.enabled = false;
+                }
             }
             
             // Disable any scripts that shouldn't run in preview mode
@@ -227,12 +248,8 @@ namespace TheButton.Player
                 return;
             }
             
-            // Calculate placement position
+            // Calculate placement position (this also updates preview position)
             UpdatePlacementPosition();
-            
-            // Update preview position and rotation
-            placementPreview.transform.position = placementPosition;
-            placementPreview.transform.rotation = placementRotation;
             
             // Update preview color based on validity
             UpdatePreviewColor();
@@ -275,10 +292,30 @@ namespace TheButton.Player
             Ray ray = new Ray(cameraTransform.position, cameraTransform.forward);
             RaycastHit hit;
             
-            if (Physics.Raycast(ray, out hit, placementDistance, placementLayerMask))
+            // Ignore triggers in raycast (our preview is a trigger)
+            if (Physics.Raycast(ray, out hit, placementDistance, placementLayerMask, QueryTriggerInteraction.Ignore))
             {
+                // Set position based on raycast hit
                 placementPosition = hit.point;
-                canPlaceAtCurrentPosition = true;
+                
+                // Update preview position first (needed for collision check)
+                if (placementPreview != null)
+                {
+                    placementPreview.transform.position = placementPosition;
+                    placementPreview.transform.rotation = placementRotation;
+                }
+                
+                // Now check collision at this position
+                if (useMeshCollisionCheck)
+                {
+                    // Wait one physics frame for colliders to update
+                    canPlaceAtCurrentPosition = CheckMeshCollision();
+                }
+                else
+                {
+                    // Simple mode: if we hit something, we can place
+                    canPlaceAtCurrentPosition = true;
+                }
             }
             else
             {
@@ -286,6 +323,109 @@ namespace TheButton.Player
                 placementPosition = cameraTransform.position + cameraTransform.forward * placementDistance;
                 canPlaceAtCurrentPosition = false;
             }
+        }
+        
+        /// <summary>
+        /// Check if the preview object collides with any existing objects using mesh collision
+        /// Returns true if placement is valid (no collision), false otherwise
+        /// </summary>
+        private bool CheckMeshCollision()
+        {
+            if (placementPreview == null || previewColliders == null || previewColliders.Length == 0)
+                return true;
+            
+            // Check each collider in the preview object
+            foreach (var col in previewColliders)
+            {
+                if (col == null || !col.enabled) continue;
+                
+                // Use Physics.OverlapBox, OverlapSphere, or OverlapCapsule based on collider type
+                Collider[] overlaps = null;
+                
+                if (col is BoxCollider boxCol)
+                {
+                    // Calculate world space bounds
+                    Vector3 center = col.bounds.center;
+                    Vector3 halfExtents = boxCol.size * 0.5f;
+                    halfExtents.x *= col.transform.lossyScale.x;
+                    halfExtents.y *= col.transform.lossyScale.y;
+                    halfExtents.z *= col.transform.lossyScale.z;
+                    
+                    // Shrink slightly by clearance amount
+                    halfExtents -= Vector3.one * minimumClearance;
+                    if (halfExtents.x < 0.01f) halfExtents.x = 0.01f;
+                    if (halfExtents.y < 0.01f) halfExtents.y = 0.01f;
+                    if (halfExtents.z < 0.01f) halfExtents.z = 0.01f;
+                    
+                    // Ignore triggers (our preview colliders are triggers)
+                    overlaps = Physics.OverlapBox(center, halfExtents, col.transform.rotation, collisionCheckLayerMask, QueryTriggerInteraction.Ignore);
+                }
+                else if (col is SphereCollider sphereCol)
+                {
+                    Vector3 center = col.bounds.center;
+                    float radius = sphereCol.radius * Mathf.Max(col.transform.lossyScale.x, col.transform.lossyScale.y, col.transform.lossyScale.z);
+                    radius -= minimumClearance;
+                    if (radius < 0.01f) radius = 0.01f;
+                    
+                    overlaps = Physics.OverlapSphere(center, radius, collisionCheckLayerMask, QueryTriggerInteraction.Ignore);
+                }
+                else if (col is CapsuleCollider capsuleCol)
+                {
+                    Vector3 center = col.bounds.center;
+                    float radius = capsuleCol.radius * Mathf.Max(col.transform.lossyScale.x, col.transform.lossyScale.z);
+                    float height = capsuleCol.height * col.transform.lossyScale.y;
+                    
+                    radius -= minimumClearance;
+                    if (radius < 0.01f) radius = 0.01f;
+                    
+                    // Calculate capsule points
+                    float halfHeight = (height * 0.5f) - radius;
+                    Vector3 point1 = center + Vector3.up * halfHeight;
+                    Vector3 point2 = center - Vector3.up * halfHeight;
+                    
+                    overlaps = Physics.OverlapCapsule(point1, point2, radius, collisionCheckLayerMask, QueryTriggerInteraction.Ignore);
+                }
+                else if (col is MeshCollider)
+                {
+                    // For mesh colliders, use bounds-based box check as approximation
+                    Vector3 center = col.bounds.center;
+                    Vector3 halfExtents = col.bounds.extents - Vector3.one * minimumClearance;
+                    if (halfExtents.x < 0.01f) halfExtents.x = 0.01f;
+                    if (halfExtents.y < 0.01f) halfExtents.y = 0.01f;
+                    if (halfExtents.z < 0.01f) halfExtents.z = 0.01f;
+                    
+                    overlaps = Physics.OverlapBox(center, halfExtents, col.transform.rotation, collisionCheckLayerMask, QueryTriggerInteraction.Ignore);
+                }
+                
+                // Check if we found any overlapping colliders
+                if (overlaps != null && overlaps.Length > 0)
+                {
+                    // Filter out our own preview colliders
+                    foreach (var overlap in overlaps)
+                    {
+                        // Check if this overlapping collider is part of our preview
+                        bool isOwnCollider = false;
+                        foreach (var previewCol in previewColliders)
+                        {
+                            if (overlap == previewCol)
+                            {
+                                isOwnCollider = true;
+                                break;
+                            }
+                        }
+                        
+                        // If it's not our own collider, we have a collision
+                        if (!isOwnCollider)
+                        {
+                            Debug.Log($"[PlayerItemUsage] Collision detected with {overlap.gameObject.name}");
+                            return false;
+                        }
+                    }
+                }
+            }
+            
+            // No collisions found, placement is valid
+            return true;
         }
         
         private void UpdatePreviewColor()
@@ -385,6 +525,8 @@ namespace TheButton.Player
                 Destroy(placementPreview);
                 placementPreview = null;
             }
+            
+            previewColliders = null;
             
             Debug.Log("[PlayerItemUsage] Exited placement mode");
         }

@@ -1,7 +1,10 @@
+using System.Collections;
 using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using TheButton.Game;
+using Scene = UnityEngine.SceneManagement.Scene;
 
 namespace TheButton.Network
 {
@@ -135,32 +138,92 @@ namespace TheButton.Network
             // Unsubscribe
             NetworkManager.Singleton.SceneManager.OnLoadEventCompleted -= OnGameSceneLoaded;
 
-            // Spawn players for all connected clients
+            // Server: Generate room first, then spawn players
             if (NetworkManager.Singleton.IsServer)
             {
-                foreach (var clientId in NetworkManager.Singleton.ConnectedClientsIds)
-                {
-                    SpawnPlayer(clientId);
-                }
-                Debug.Log($"[Network] Spawned {NetworkManager.Singleton.ConnectedClientsIds.Count} players");
+                StartCoroutine(GenerateRoomAndSpawnPlayers());
             }
         }
+        
+        /// <summary>
+        /// Generate procedural room, wait for completion, then spawn players
+        /// </summary>
+        private IEnumerator GenerateRoomAndSpawnPlayers()
+        {
+            Debug.Log("[Network] Starting room generation...");
+            
+            // Find or create ProceduralRoomGenerator
+            ProceduralRoomGenerator roomGenerator = FindObjectOfType<ProceduralRoomGenerator>();
+            
+            if (roomGenerator == null)
+            {
+                Debug.LogWarning("[Network] ProceduralRoomGenerator not found in scene, spawning one...");
+                GameObject generatorObj = new GameObject("ProceduralRoomGenerator");
+                roomGenerator = generatorObj.AddComponent<ProceduralRoomGenerator>();
+                
+                // Get NetworkObject and spawn it
+                NetworkObject netObj = generatorObj.AddComponent<NetworkObject>();
+                netObj.Spawn(true);
+            }
+            
+            // Wait for room generator to be ready
+            yield return new WaitUntil(() => roomGenerator.IsSpawned);
+            
+            // Start room generation
+            bool roomReady = false;
+            roomGenerator.OnRoomGenerationComplete += () => roomReady = true;
+            roomGenerator.GenerateRoom();
+            
+            // Wait for room generation to complete
+            yield return new WaitUntil(() => roomReady);
+            
+            Debug.Log("[Network] Room generation complete, spawning players...");
+            
+            // Calculate spawn position - room center at floor level
+            Vector3 spawnPos = roomGenerator.GetRoomCenter();
+            Debug.Log($"[Network] Raw room center: {spawnPos}");
+            
+            spawnPos.y = 1f; // Floor level + 1 meter
+            Debug.Log($"[Network] Adjusted spawn position: {spawnPos}");
+            
+            // Spawn players for all connected clients at same position
+            int playerCount = 0;
+            foreach (var clientId in NetworkManager.Singleton.ConnectedClientsIds)
+            {
+                Debug.Log($"[Network] Spawning player {playerCount} (clientId: {clientId}) at {spawnPos}");
+                SpawnPlayer(clientId, spawnPos);
+                playerCount++;
+            }
+            
+            Debug.Log($"[Network] Successfully spawned {playerCount} players at {spawnPos}");
+        }
 
-        private void SpawnPlayer(ulong clientId)
+        private void SpawnPlayer(ulong clientId, Vector3? customSpawnPosition = null)
         {
             // Get spawn position
-            Vector3 spawnPosition = GetSpawnPosition();
+            Vector3 spawnPosition = customSpawnPosition ?? GetSpawnPosition();
+            
+            Debug.Log($"[Network] SpawnPlayer: Final position for client {clientId}: {spawnPosition}");
             
             // Spawn player
             var playerObject = Instantiate(NetworkManager.Singleton.NetworkConfig.Prefabs.Prefabs[0].Prefab, spawnPosition, Quaternion.identity);
             var networkObject = playerObject.GetComponent<NetworkObject>();
             networkObject.SpawnAsPlayerObject(clientId, true);
             
-            Debug.Log($"[Network] Spawned player for client {clientId}");
+            Debug.Log($"[Network] ✅ Successfully spawned player for client {clientId} at {spawnPosition}");
         }
 
         private Vector3 GetSpawnPosition()
         {
+            // Try to use room generator spawn position
+            ProceduralRoomGenerator roomGenerator = FindObjectOfType<ProceduralRoomGenerator>();
+            if (roomGenerator != null && roomGenerator.IsRoomReady())
+            {
+                Vector3 spawnPos = roomGenerator.GetRoomCenter();
+                spawnPos.y = 1f; // Floor level
+                return spawnPos;
+            }
+            
             // Try to find spawn points
             var spawnPoints = GameObject.FindGameObjectsWithTag("Respawn");
             if (spawnPoints.Length > 0)
@@ -181,6 +244,33 @@ namespace TheButton.Network
         private void OnClientConnected(ulong clientId)
         {
             Debug.Log($"[Network] Client connected: {clientId}");
+            
+            // If server and we're in GameRoom scene, spawn player for the newly connected client
+            if (NetworkManager.Singleton.IsServer)
+            {
+                Scene currentScene = SceneManager.GetActiveScene();
+                if (currentScene.name == gameSceneName)
+                {
+                    // Room already generated, spawn player immediately
+                    ProceduralRoomGenerator roomGenerator = FindObjectOfType<ProceduralRoomGenerator>();
+                    if (roomGenerator != null && roomGenerator.IsRoomReady())
+                    {
+                        // Calculate spawn position - same as other players
+                        Vector3 spawnPos = roomGenerator.GetRoomCenter();
+                        Debug.Log($"[Network] Late join: Raw room center: {spawnPos}");
+                        
+                        spawnPos.y = 1f; // Floor level
+                        Debug.Log($"[Network] Late join: Adjusted spawn pos: {spawnPos}");
+                        
+                        Debug.Log($"[Network] Late join: Spawning player for client {clientId} at {spawnPos}");
+                        SpawnPlayer(clientId, spawnPos);
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[Network] Room not ready yet for client {clientId}");
+                    }
+                }
+            }
         }
 
         private void OnClientDisconnected(ulong clientId)

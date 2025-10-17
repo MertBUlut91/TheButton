@@ -136,6 +136,7 @@ namespace TheButton.Game
         
         /// <summary>
         /// Restart the game (Server only)
+        /// Generates a new room and resets all players
         /// </summary>
         [ServerRpc(RequireOwnership = false)]
         public void RestartGameServerRpc()
@@ -148,6 +149,18 @@ namespace TheButton.Game
             currentGameState.Value = GameState.Playing;
             winnerClientId.Value = ulong.MaxValue;
             gameStartTime = Time.time;
+            
+            // Clear old room
+            ProceduralRoomGenerator roomGenerator = FindObjectOfType<ProceduralRoomGenerator>();
+            if (roomGenerator != null)
+            {
+                roomGenerator.ClearRoom();
+                
+                // Generate new room
+                Debug.Log("[GameManager] Generating new room for restart...");
+                roomGenerator.OnRoomGenerationComplete += OnNewRoomGenerated;
+                roomGenerator.GenerateRoom();
+            }
             
             // Reset all players
             var playerNetworks = FindObjectsOfType<Player.PlayerNetwork>();
@@ -174,6 +187,25 @@ namespace TheButton.Game
             }
             
             Debug.Log("[GameManager] Game restarted");
+        }
+        
+        private void OnNewRoomGenerated()
+        {
+            Debug.Log("[GameManager] New room generated, repositioning players...");
+            
+            ProceduralRoomGenerator roomGenerator = FindObjectOfType<ProceduralRoomGenerator>();
+            if (roomGenerator != null)
+            {
+                roomGenerator.OnRoomGenerationComplete -= OnNewRoomGenerated;
+                
+                // Move all players to new room center
+                Vector3 roomCenter = roomGenerator.GetRoomCenter();
+                var playerNetworks = FindObjectsOfType<Player.PlayerNetwork>();
+                foreach (var player in playerNetworks)
+                {
+                    player.transform.position = roomCenter;
+                }
+            }
         }
         
         /// <summary>
