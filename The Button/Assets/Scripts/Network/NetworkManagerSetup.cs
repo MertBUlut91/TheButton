@@ -179,23 +179,35 @@ namespace TheButton.Network
             
             Debug.Log("[Network] Room generation complete, spawning players...");
             
-            // Calculate spawn position - room center at floor level
-            Vector3 spawnPos = roomGenerator.GetRoomCenter();
-            Debug.Log($"[Network] Raw room center: {spawnPos}");
+            // Calculate base spawn position - room center at floor level
+            Vector3 baseSpawnPos = roomGenerator.GetRoomCenter();
+            Debug.Log($"[Network] Base spawn position (room center): {baseSpawnPos}");
             
-            spawnPos.y = 1f; // Floor level + 1 meter
-            Debug.Log($"[Network] Adjusted spawn position: {spawnPos}");
-            
-            // Spawn players for all connected clients at same position
+            // Spawn players in a circle pattern to avoid collision
             int playerCount = 0;
+            int totalPlayers = NetworkManager.Singleton.ConnectedClientsIds.Count;
+            float spawnRadius = 2f; // Radius of spawn circle (adjust based on player size)
+            
             foreach (var clientId in NetworkManager.Singleton.ConnectedClientsIds)
             {
-                Debug.Log($"[Network] Spawning player {playerCount} (clientId: {clientId}) at {spawnPos}");
-                SpawnPlayer(clientId, spawnPos);
+                // Calculate angle for this player (evenly distributed around circle)
+                float angle = (360f / totalPlayers) * playerCount * Mathf.Deg2Rad;
+                
+                // Calculate offset from center
+                Vector3 offset = new Vector3(
+                    Mathf.Cos(angle) * spawnRadius,
+                    0f,
+                    Mathf.Sin(angle) * spawnRadius
+                );
+                
+                Vector3 playerSpawnPos = baseSpawnPos + offset;
+                
+                Debug.Log($"[Network] Spawning player {playerCount} (clientId: {clientId}) at {playerSpawnPos} (angle: {angle * Mathf.Rad2Deg}°, offset: {offset})");
+                SpawnPlayer(clientId, playerSpawnPos);
                 playerCount++;
             }
             
-            Debug.Log($"[Network] Successfully spawned {playerCount} players at {spawnPos}");
+            Debug.Log($"[Network] Successfully spawned {playerCount} players in circle formation (radius: {spawnRadius})");
         }
 
         private void SpawnPlayer(ulong clientId, Vector3? customSpawnPosition = null)
@@ -215,13 +227,24 @@ namespace TheButton.Network
 
         private Vector3 GetSpawnPosition()
         {
-            // Try to use room generator spawn position
+            // Try to use room generator spawn position with random offset
             ProceduralRoomGenerator roomGenerator = FindObjectOfType<ProceduralRoomGenerator>();
             if (roomGenerator != null && roomGenerator.IsRoomReady())
             {
-                Vector3 spawnPos = roomGenerator.GetRoomCenter();
-                spawnPos.y = 1f; // Floor level
-                return spawnPos;
+                Vector3 baseSpawnPos = roomGenerator.GetRoomCenter();
+                
+                // Add random offset to avoid collision
+                float spawnRadius = 2f;
+                float randomAngle = UnityEngine.Random.Range(0f, 360f) * Mathf.Deg2Rad;
+                float randomRadius = UnityEngine.Random.Range(0f, spawnRadius);
+                
+                Vector3 offset = new Vector3(
+                    Mathf.Cos(randomAngle) * randomRadius,
+                    0f,
+                    Mathf.Sin(randomAngle) * randomRadius
+                );
+                
+                return baseSpawnPos + offset;
             }
             
             // Try to find spawn points
@@ -255,14 +278,23 @@ namespace TheButton.Network
                     ProceduralRoomGenerator roomGenerator = FindObjectOfType<ProceduralRoomGenerator>();
                     if (roomGenerator != null && roomGenerator.IsRoomReady())
                     {
-                        // Calculate spawn position - same as other players
-                        Vector3 spawnPos = roomGenerator.GetRoomCenter();
-                        Debug.Log($"[Network] Late join: Raw room center: {spawnPos}");
+                        // Calculate spawn position - add random offset to avoid collision
+                        Vector3 baseSpawnPos = roomGenerator.GetRoomCenter();
                         
-                        spawnPos.y = 1f; // Floor level
-                        Debug.Log($"[Network] Late join: Adjusted spawn pos: {spawnPos}");
+                        // Random offset within spawn radius
+                        float spawnRadius = 2f;
+                        float randomAngle = UnityEngine.Random.Range(0f, 360f) * Mathf.Deg2Rad;
+                        float randomRadius = UnityEngine.Random.Range(0f, spawnRadius);
                         
-                        Debug.Log($"[Network] Late join: Spawning player for client {clientId} at {spawnPos}");
+                        Vector3 offset = new Vector3(
+                            Mathf.Cos(randomAngle) * randomRadius,
+                            0f,
+                            Mathf.Sin(randomAngle) * randomRadius
+                        );
+                        
+                        Vector3 spawnPos = baseSpawnPos + offset;
+                        
+                        Debug.Log($"[Network] Late join: Spawning player for client {clientId} at {spawnPos} (base: {baseSpawnPos}, offset: {offset})");
                         SpawnPlayer(clientId, spawnPos);
                     }
                     else

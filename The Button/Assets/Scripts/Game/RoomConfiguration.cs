@@ -35,8 +35,20 @@ namespace TheButton.Game
         [Tooltip("Wall cube with button prefab (already includes button on top)")]
         public GameObject wallCubeWithButtonPrefab;
         
+        [Tooltip("Plain wall cube prefab (no button, just a wall)")]
+        public GameObject plainWallCubePrefab;
+        
         [Tooltip("Plain corner cube prefab (no button, for corners)")]
         public GameObject cornerCubePrefab;
+        
+        [Header("Button Density")]
+        [Tooltip("Minimum percentage of wall positions that will have buttons (0-100)")]
+        [Range(0f, 100f)]
+        public float minButtonDensityPercent = 20f;
+        
+        [Tooltip("Maximum percentage of wall positions that will have buttons (0-100)")]
+        [Range(0f, 100f)]
+        public float maxButtonDensityPercent = 50f;
         
         [Header("Materials")]
         [Tooltip("Material for floor")]
