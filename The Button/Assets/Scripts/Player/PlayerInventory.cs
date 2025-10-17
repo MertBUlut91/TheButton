@@ -25,8 +25,12 @@ namespace TheButton.Player
         
         // Local cache: Actual ItemData references
         private List<ItemData> inventoryItems = new List<ItemData>();
+        
+        // Selected slot (local only, no need to sync)
+        private int selectedSlotIndex = 0;
 
         public event System.Action OnInventoryChanged;
+        public event System.Action<int> OnSelectedSlotChanged;
         
         // Event fired when a key is used (for door interaction)
         public event System.Action OnKeyUsed;
@@ -364,6 +368,104 @@ namespace TheButton.Player
                 }
             }
             return -1;
+        }
+        
+        /// <summary>
+        /// Set the selected slot (0-4)
+        /// </summary>
+        public void SetSelectedSlot(int slotIndex)
+        {
+            if (slotIndex < 0 || slotIndex >= maxSlots)
+            {
+                Debug.LogWarning($"[Inventory] Invalid slot index: {slotIndex}");
+                return;
+            }
+            
+            selectedSlotIndex = slotIndex;
+            OnSelectedSlotChanged?.Invoke(selectedSlotIndex);
+            Debug.Log($"[Inventory] Selected slot: {selectedSlotIndex}");
+        }
+        
+        /// <summary>
+        /// Get the currently selected slot index
+        /// </summary>
+        public int GetSelectedSlot()
+        {
+            return selectedSlotIndex;
+        }
+        
+        /// <summary>
+        /// Get the item in the currently selected slot
+        /// </summary>
+        public ItemData GetSelectedItem()
+        {
+            return GetItemAtSlot(selectedSlotIndex);
+        }
+        
+        /// <summary>
+        /// Drop the item in the currently selected slot
+        /// </summary>
+        public void DropSelectedItem()
+        {
+            if (selectedSlotIndex >= inventoryItems.Count) return;
+            if (inventoryItems[selectedSlotIndex] == null) return;
+            
+            DropItemServerRpc(selectedSlotIndex);
+        }
+        
+        /// <summary>
+        /// Drop an item from inventory into the world
+        /// </summary>
+        [ServerRpc(RequireOwnership = false)]
+        public void DropItemServerRpc(int slotIndex, ServerRpcParams rpcParams = default)
+        {
+            if (slotIndex < 0 || slotIndex >= inventoryItemNames.Count)
+            {
+                Debug.LogWarning($"[Inventory] Invalid slot index: {slotIndex}");
+                return;
+            }
+            
+            string itemDataAssetName = inventoryItemNames[slotIndex].ToString();
+            ItemData itemData = Resources.Load<ItemData>($"Items/{itemDataAssetName}");
+            
+            if (itemData == null)
+            {
+                Debug.LogError($"[Inventory] Failed to load ItemData: {itemDataAssetName}");
+                return;
+            }
+            
+            // Get player object
+            ulong clientId = rpcParams.Receive.SenderClientId;
+            if (!NetworkManager.Singleton.ConnectedClients.TryGetValue(clientId, out var client))
+            {
+                Debug.LogError($"[Inventory] Client {clientId} not found");
+                return;
+            }
+            
+            var playerObject = client.PlayerObject;
+            if (playerObject == null)
+            {
+                Debug.LogError($"[Inventory] Player object not found for client {clientId}");
+                return;
+            }
+            
+            // Calculate drop position (in front of player)
+            Vector3 dropPosition = playerObject.transform.position + playerObject.transform.forward * 2f + Vector3.up * 1f;
+            Quaternion dropRotation = Quaternion.identity;
+            
+            // Spawn the item in the world
+            if (ItemSpawner.Instance != null)
+            {
+                ItemSpawner.Instance.SpawnItem(itemData, dropPosition, dropRotation);
+                Debug.Log($"[Inventory] Dropped item {itemData.itemName} at {dropPosition}");
+            }
+            else
+            {
+                Debug.LogError("[Inventory] ItemSpawner instance not found!");
+            }
+            
+            // Remove from inventory
+            inventoryItemNames.RemoveAt(slotIndex);
         }
     }
 }

@@ -20,9 +20,15 @@ namespace TheButton.UI
 
         [Header("Settings")]
         [SerializeField] private int maxSlots = 5;
+        
+        [Header("Highlight Settings")]
+        [SerializeField] private Color normalSlotColor = new Color(0.2f, 0.2f, 0.2f, 0.8f);
+        [SerializeField] private Color selectedSlotColor = new Color(1f, 1f, 0f, 1f);
+        [SerializeField] private float selectedSlotScale = 1.1f;
 
         private List<GameObject> slotObjects = new List<GameObject>();
         private PlayerInventory playerInventory;
+        private int currentSelectedSlot = 0;
 
         private void Start()
         {
@@ -89,6 +95,11 @@ namespace TheButton.UI
                 {
                     playerInventory = inventory;
                     playerInventory.OnInventoryChanged += OnInventoryChanged;
+                    playerInventory.OnSelectedSlotChanged += OnSelectedSlotChanged;
+                    
+                    // Initialize selection
+                    currentSelectedSlot = inventory.GetSelectedSlot();
+                    UpdateSlotHighlights();
                     break;
                 }
             }
@@ -143,33 +154,47 @@ namespace TheButton.UI
 
         private void HandleInventoryInput()
         {
-            // Use number keys 1-5 to use items
-            if (Input.GetKeyDown(KeyCode.Alpha1)) UseItemInSlot(0);
-            if (Input.GetKeyDown(KeyCode.Alpha2)) UseItemInSlot(1);
-            if (Input.GetKeyDown(KeyCode.Alpha3)) UseItemInSlot(2);
-            if (Input.GetKeyDown(KeyCode.Alpha4)) UseItemInSlot(3);
-            if (Input.GetKeyDown(KeyCode.Alpha5)) UseItemInSlot(4);
+            // NOTE: Slot selection is now handled by PlayerItemUsage
+            // This method is kept for backwards compatibility but does nothing
         }
 
         private void OnSlotClicked(int slotIndex)
         {
-            UseItemInSlot(slotIndex);
-        }
-
-        private void UseItemInSlot(int slotIndex)
-        {
-            if (playerInventory == null) return;
-            
-            ItemData itemData = playerInventory.GetItemAtSlot(slotIndex);
-            if (itemData == null) return;
-
-            Debug.Log($"[InventoryUI] Using item in slot {slotIndex}: {itemData.itemName}");
-            playerInventory.UseItemServerRpc(slotIndex);
+            // Clicking a slot now selects it instead of using it
+            if (playerInventory != null)
+            {
+                playerInventory.SetSelectedSlot(slotIndex);
+            }
         }
 
         private void OnInventoryChanged()
         {
             UpdateInventoryDisplay();
+        }
+        
+        private void OnSelectedSlotChanged(int newSlotIndex)
+        {
+            currentSelectedSlot = newSlotIndex;
+            UpdateSlotHighlights();
+        }
+        
+        private void UpdateSlotHighlights()
+        {
+            for (int i = 0; i < slotObjects.Count; i++)
+            {
+                if (slotObjects[i] == null) continue;
+                
+                var slotImage = slotObjects[i].GetComponent<Image>();
+                if (slotImage != null)
+                {
+                    // Set color based on selection
+                    slotImage.color = (i == currentSelectedSlot) ? selectedSlotColor : normalSlotColor;
+                }
+                
+                // Set scale based on selection
+                float scale = (i == currentSelectedSlot) ? selectedSlotScale : 1f;
+                slotObjects[i].transform.localScale = Vector3.one * scale;
+            }
         }
 
         private string GetItemName(ItemData itemData)
@@ -200,6 +225,7 @@ namespace TheButton.UI
             if (playerInventory != null)
             {
                 playerInventory.OnInventoryChanged -= OnInventoryChanged;
+                playerInventory.OnSelectedSlotChanged -= OnSelectedSlotChanged;
             }
         }
     }

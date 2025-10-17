@@ -20,10 +20,6 @@ namespace TheButton.Items
         [Tooltip("The ItemData ScriptableObject this item represents")]
         [SerializeField] private ItemData itemData;
         
-        [Header("Visual Settings")]
-        [Tooltip("The visual mesh renderer")]
-        [SerializeField] private MeshRenderer meshRenderer;
-        
         [Header("Physics Settings")]
         [Tooltip("Rigidbody component (auto-assigned)")]
         [SerializeField] private Rigidbody rb;
@@ -45,11 +41,6 @@ namespace TheButton.Items
             if (rb == null)
             {
                 rb = GetComponent<Rigidbody>();
-            }
-            
-            if (meshRenderer == null)
-            {
-                meshRenderer = GetComponentInChildren<MeshRenderer>();
             }
             
             // Ensure collider is NOT trigger (for physics)
@@ -151,23 +142,40 @@ namespace TheButton.Items
         
         public void Interact(GameObject playerGameObject)
         {
-            // Only server handles pickup logic
-            if (!IsServer) return;
-            if (isBeingPickedUp) return;
-            if (itemData == null) return;
+            Debug.Log($"[WorldItem] Interact called by player: {playerGameObject.name}, IsServer: {IsServer}");
+            
+            // Client needs to request interaction from server
+            if (!IsServer)
+            {
+                // Request pickup on server
+                RequestPickupServerRpc(playerGameObject.GetComponent<NetworkObject>().OwnerClientId);
+                return;
+            }
+            
+            if (isBeingPickedUp)
+            {
+                Debug.Log("[WorldItem] Item is already being picked up");
+                return;
+            }
+            
+            if (itemData == null)
+            {
+                Debug.LogError("[WorldItem] ItemData is null!");
+                return;
+            }
             
             // Get player inventory
             var playerInventory = playerGameObject.GetComponent<Player.PlayerInventory>();
-            if (playerInventory == null || !playerInventory.IsOwner)
+            if (playerInventory == null)
             {
-                Debug.LogWarning("[WorldItem] Player has no inventory component!");
+                Debug.LogWarning($"[WorldItem] Player {playerGameObject.name} has no inventory component!");
                 return;
             }
             
             // Try to add item to player's inventory
             if (!playerInventory.IsFull())
             {
-                Debug.Log($"[WorldItem] Player picked up {itemData.itemName}");
+                Debug.Log($"[WorldItem] Player {playerInventory.OwnerClientId} picked up {itemData.itemName}");
                 
                 // Add item to inventory (pass ItemData asset name)
                 playerInventory.AddItemServerRpc(itemData.name);
@@ -182,6 +190,30 @@ namespace TheButton.Items
             {
                 Debug.Log($"[WorldItem] Player's inventory is full!");
                 // Could show UI message here
+            }
+        }
+        
+        [ServerRpc(RequireOwnership = false)]
+        private void RequestPickupServerRpc(ulong clientId)
+        {
+            Debug.Log($"[WorldItem] RequestPickupServerRpc called by client {clientId}");
+            
+            // Find the player object for this client
+            if (NetworkManager.Singleton.ConnectedClients.TryGetValue(clientId, out var client))
+            {
+                var playerObject = client.PlayerObject;
+                if (playerObject != null)
+                {
+                    Interact(playerObject.gameObject);
+                }
+                else
+                {
+                    Debug.LogError($"[WorldItem] Player object not found for client {clientId}");
+                }
+            }
+            else
+            {
+                Debug.LogError($"[WorldItem] Client {clientId} not found in connected clients");
             }
         }
         
@@ -207,11 +239,6 @@ namespace TheButton.Items
             if (rb == null)
             {
                 rb = GetComponent<Rigidbody>();
-            }
-            
-            if (meshRenderer == null)
-            {
-                meshRenderer = GetComponentInChildren<MeshRenderer>();
             }
         }
 #endif

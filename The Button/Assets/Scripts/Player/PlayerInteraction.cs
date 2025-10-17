@@ -26,24 +26,51 @@ namespace TheButton.Player
         
         private IInteractable currentInteractable;
         private GameObject currentInteractableObject;
+        private PlayerItemUsage playerItemUsage;
         
         // Event for UI to subscribe to
         public event System.Action<string> OnInteractionPromptChanged;
         
         private void Start()
         {
+            // Only initialize for local player
+            if (!IsOwner) return;
+            
+            // Find PlayerItemUsage component
+            playerItemUsage = GetComponent<PlayerItemUsage>();
+            if (playerItemUsage == null)
+            {
+                Debug.LogWarning("[PlayerInteraction] PlayerItemUsage component not found!");
+            }
+            
             // Auto-find camera if not assigned
             if (cameraTransform == null)
             {
-                var playerController = GetComponent<PlayerController>();
-                if (playerController != null)
+                // First try to find child camera
+                cameraTransform = transform.Find("PlayerCamera");
+                
+                if (cameraTransform == null)
                 {
-                    cameraTransform = playerController.transform.Find("PlayerCamera");
+                    // Try to find in nested children
+                    var cameras = GetComponentsInChildren<Camera>(true);
+                    foreach (var cam in cameras)
+                    {
+                        if (cam.gameObject.activeInHierarchy)
+                        {
+                            cameraTransform = cam.transform;
+                            Debug.Log($"[PlayerInteraction] Found camera: {cam.name}");
+                            break;
+                        }
+                    }
                 }
                 
                 if (cameraTransform == null)
                 {
-                    cameraTransform = Camera.main?.transform;
+                    Debug.LogError($"[PlayerInteraction] Camera not found for player {OwnerClientId}!");
+                }
+                else
+                {
+                    Debug.Log($"[PlayerInteraction] Player {OwnerClientId} camera setup: {cameraTransform.name}");
                 }
             }
         }
@@ -53,22 +80,53 @@ namespace TheButton.Player
             // Only local player can interact
             if (!IsOwner) return;
             
+            // Don't interact if in placement mode
+            if (playerItemUsage != null && playerItemUsage.IsInPlacementMode())
+            {
+                // Clear current interactable while in placement mode
+                if (currentInteractable != null)
+                {
+                    currentInteractable = null;
+                    currentInteractableObject = null;
+                    UpdateInteractionPrompt();
+                }
+                return;
+            }
+            
             // Check for interactable objects
             DetectInteractable();
             
             // Handle interaction input
-            if (Input.GetKeyDown(interactKey) && currentInteractable != null)
+            if (Input.GetKeyDown(interactKey))
             {
-                if (currentInteractable.CanInteract())
+                if (currentInteractable != null)
                 {
-                    currentInteractable.Interact(gameObject);
+                    Debug.Log($"[PlayerInteraction] Player {OwnerClientId} attempting to interact with {currentInteractableObject?.name}");
+                    
+                    if (currentInteractable.CanInteract())
+                    {
+                        Debug.Log($"[PlayerInteraction] Player {OwnerClientId} interacting!");
+                        currentInteractable.Interact(gameObject);
+                    }
+                    else
+                    {
+                        Debug.Log($"[PlayerInteraction] Player {OwnerClientId} - CanInteract returned false");
+                    }
+                }
+                else
+                {
+                    Debug.Log($"[PlayerInteraction] Player {OwnerClientId} pressed E but no interactable found");
                 }
             }
         }
         
         private void DetectInteractable()
         {
-            if (cameraTransform == null) return;
+            if (cameraTransform == null)
+            {
+                Debug.LogWarning($"[PlayerInteraction] Player {OwnerClientId} - Camera is null!");
+                return;
+            }
             
             IInteractable previousInteractable = currentInteractable;
             currentInteractable = null;
@@ -86,6 +144,12 @@ namespace TheButton.Player
                 {
                     currentInteractable = interactable;
                     currentInteractableObject = hit.collider.gameObject;
+                    
+                    // Only log when first detecting a new interactable
+                    if (previousInteractable != currentInteractable)
+                    {
+                        Debug.Log($"[PlayerInteraction] Player {OwnerClientId} detected interactable: {hit.collider.gameObject.name}");
+                    }
                 }
             }
             

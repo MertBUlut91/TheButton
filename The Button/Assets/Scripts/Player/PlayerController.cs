@@ -36,13 +36,17 @@ namespace TheButton.Player
             {
                 if (cameraTransform != null)
                     cameraTransform.gameObject.SetActive(false);
-                enabled = false;
-                return;
+                    
+                // Disable CharacterController for remote players
+                if (characterController != null)
+                    characterController.enabled = false;
             }
-
-            // Lock and hide cursor for local player
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
+            else
+            {
+                // Lock and hide cursor for local player
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+            }
         }
 
         private void Update()
