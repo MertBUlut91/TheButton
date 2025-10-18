@@ -30,3 +30,4 @@ MonoBehaviour:
   spawnPointCubePrefab: {fileID: 8480751738691363074, guid: b6478f3fc29524158b9d028082582bf4, type: 3}
   playerSpawnOffset: {x: 0, y: 0, z: 0}
   itemSpawnOffset: 0.5
+  eventPool: {fileID: 11400000, guid: 309b2abf49f588c4893b144a5b6a5759, type: 2}

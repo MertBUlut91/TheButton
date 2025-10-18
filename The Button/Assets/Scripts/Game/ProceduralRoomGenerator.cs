@@ -43,6 +43,12 @@ namespace TheButton.Game
         private List<WallPosition> availableWallPositions = new List<WallPosition>();
         private List<WallPosition> usedWallPositions = new List<WallPosition>();
         
+        // Track occupied grid positions for multi-block events
+        private HashSet<Vector3Int> occupiedGridPositions = new HashSet<Vector3Int>();
+        
+        // Store spawned events
+        private List<GameObject> spawnedEvents = new List<GameObject>();
+        
         // Helper struct to store position and rotation
         private struct WallPosition
         {
@@ -53,6 +59,25 @@ namespace TheButton.Game
             {
                 position = pos;
                 rotation = rot;
+            }
+        }
+        
+        // Helper struct for event placement
+        private struct EventPlacement
+        {
+            public EventData eventData;
+            public Vector3 worldPosition;
+            public Quaternion rotation;
+            public PlacementType placementType;
+            public Vector3Int gridPosition; // Starting grid position
+            
+            public EventPlacement(EventData data, Vector3 worldPos, Quaternion rot, PlacementType placement, Vector3Int gridPos)
+            {
+                eventData = data;
+                worldPosition = worldPos;
+                rotation = rot;
+                placementType = placement;
+                gridPosition = gridPos;
             }
         }
         
@@ -157,6 +182,11 @@ namespace TheButton.Game
             
             Log("Generating floor and ceiling...");
             GenerateFloorAndCeiling();
+            yield return null;
+            
+            // Place events before walls (events occupy grid positions)
+            Log("Placing events...");
+            PlaceEvents();
             yield return null;
             
             Log("Generating walls with buttons...");
@@ -357,7 +387,8 @@ namespace TheButton.Game
                 buttonPositionIndices,
                 ref itemIndex,
                 ref globalPositionIndex,
-                isEastOrWestWall: false // North wall, corners already excluded
+                isEastOrWestWall: false, // North wall, corners already excluded
+                wallStartGridPos: new Vector3Int(1, 0, roomConfig.roomDepth - 1) // Grid start position
             );
             
             // South wall (negative Z) - skip corners
@@ -373,7 +404,8 @@ namespace TheButton.Game
                 buttonPositionIndices,
                 ref itemIndex,
                 ref globalPositionIndex,
-                isEastOrWestWall: false // South wall, corners already excluded
+                isEastOrWestWall: false, // South wall, corners already excluded
+                wallStartGridPos: new Vector3Int(1, 0, 0) // Grid start position
             );
             
             // East wall (positive X) - include corners as cornerCube
@@ -389,7 +421,8 @@ namespace TheButton.Game
                 buttonPositionIndices,
                 ref itemIndex,
                 ref globalPositionIndex,
-                isEastOrWestWall: true // East wall, will place cornerCube at first and last positions
+                isEastOrWestWall: true, // East wall, will place cornerCube at first and last positions
+                wallStartGridPos: new Vector3Int(roomConfig.roomWidth - 1, 0, 0) // Grid start position
             );
             
             // West wall (negative X) - include corners as cornerCube
@@ -405,16 +438,18 @@ namespace TheButton.Game
                 buttonPositionIndices,
                 ref itemIndex,
                 ref globalPositionIndex,
-                isEastOrWestWall: true // West wall, will place cornerCube at first and last positions
+                isEastOrWestWall: true, // West wall, will place cornerCube at first and last positions
+                wallStartGridPos: new Vector3Int(0, 0, 0) // Grid start position
             );
         }
         
         /// <summary>
         /// Generate a single wall with buttons (based on button density)
+        /// Pass wall start grid position for accurate occupied checking
         /// </summary>
         private void GenerateWall_Internal(Vector3 startPos, Vector3 widthDir, Vector3 heightDir,
             Quaternion rotation, int width, int height, Transform parent, List<ItemData> items, 
-            HashSet<int> buttonPositionIndices, ref int itemIndex, ref int globalPositionIndex, bool isEastOrWestWall = false)
+            HashSet<int> buttonPositionIndices, ref int itemIndex, ref int globalPositionIndex, bool isEastOrWestWall = false, Vector3Int wallStartGridPos = default)
         {
             for (int w = 0; w < width; w++)
             {
@@ -443,6 +478,19 @@ namespace TheButton.Game
                     }
                     else
                     {
+                        // Calculate grid position based on wall direction and loop indices
+                        Vector3Int gridPos = CalculateWallGridPosition(wallStartGridPos, widthDir, heightDir, w, h);
+                        bool isOccupiedByEvent = occupiedGridPositions.Contains(gridPos);
+                        
+                        if (isOccupiedByEvent)
+                        {
+                            // Skip this position, it's occupied by an event
+                            // Don't place wall or button here
+                            Log($"Skipping wall cube at world: {position}, grid: {gridPos} - occupied by event");
+                            globalPositionIndex++;
+                            continue;
+                        }
+                        
                         // Check if this position should have a button
                         bool shouldPlaceButton = buttonPositionIndices.Contains(globalPositionIndex);
                         
@@ -629,6 +677,8 @@ namespace TheButton.Game
             generatedObjects.Clear();
             availableWallPositions.Clear();
             usedWallPositions.Clear();
+            occupiedGridPositions.Clear();
+            spawnedEvents.Clear();
             isRoomGenerated.Value = false;
             
             Log("Room cleared");
@@ -687,6 +737,643 @@ namespace TheButton.Game
                 Debug.Log($"[RoomGenerator] {message}");
             }
         }
+        
+        #region Event Placement System
+        
+        /// <summary>
+        /// Place events in the room before generating walls
+        /// </summary>
+        private void PlaceEvents()
+        {
+            if (roomConfig.eventPool == null)
+            {
+                Log("No event pool configured, skipping event placement");
+                return;
+            }
+            
+            if (!roomConfig.eventPool.Validate())
+            {
+                Debug.LogError("[RoomGenerator] Event pool validation failed!");
+                return;
+            }
+            
+            List<EventData> eventsToPlace = new List<EventData>();
+            
+            // Add required events first
+            if (roomConfig.eventPool.requiredEvents != null)
+            {
+                foreach (var eventData in roomConfig.eventPool.requiredEvents)
+                {
+                    if (eventData != null)
+                    {
+                        eventsToPlace.Add(eventData);
+                    }
+                }
+            }
+            
+            // Add random events
+            int randomEventCount = Random.Range(
+                roomConfig.eventPool.minRandomEvents,
+                roomConfig.eventPool.maxRandomEvents + 1
+            );
+            
+            for (int i = 0; i < randomEventCount; i++)
+            {
+                EventData randomEvent = roomConfig.eventPool.GetRandomEvent();
+                if (randomEvent != null)
+                {
+                    eventsToPlace.Add(randomEvent);
+                }
+            }
+            
+            Log($"Placing {eventsToPlace.Count} events ({roomConfig.eventPool.requiredEvents?.Count ?? 0} required, {randomEventCount} random)");
+            
+            // Try to place each event
+            foreach (var eventData in eventsToPlace)
+            {
+                if (TryPlaceEvent(eventData, out EventPlacement placement))
+                {
+                    SpawnEvent(placement);
+                    
+                    // Add event's required items to item pool for buttons
+                    if (eventData.HasRequiredItems)
+                    {
+                        AssignRequiredItemsToButtons(eventData);
+                    }
+                }
+                else
+                {
+                    Debug.LogWarning($"[RoomGenerator] Failed to place event: {eventData.eventName}");
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Try to place an event in the room
+        /// </summary>
+        private bool TryPlaceEvent(EventData eventData, out EventPlacement placement)
+        {
+            placement = default;
+            
+            if (eventData == null || eventData.eventPrefab == null)
+            {
+                return false;
+            }
+            
+            // Determine where to try placing based on placement type
+            PlacementType[] placementTypes;
+            
+            switch (eventData.placementType)
+            {
+                case PlacementType.Wall:
+                    placementTypes = new[] { PlacementType.Wall };
+                    break;
+                case PlacementType.Floor:
+                    placementTypes = new[] { PlacementType.Floor };
+                    break;
+                case PlacementType.Ceiling:
+                    placementTypes = new[] { PlacementType.Ceiling };
+                    break;
+                case PlacementType.Any:
+                    placementTypes = new[] { PlacementType.Wall, PlacementType.Floor, PlacementType.Ceiling };
+                    break;
+                default:
+                    placementTypes = new[] { PlacementType.Wall };
+                    break;
+            }
+            
+            // Shuffle placement types for randomness
+            placementTypes = placementTypes.OrderBy(x => Random.value).ToArray();
+            
+            // Try each placement type
+            foreach (var pType in placementTypes)
+            {
+                if (TryFindSpaceForEvent(eventData, pType, out placement))
+                {
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+        
+        /// <summary>
+        /// Try to find available space for an event
+        /// </summary>
+        private bool TryFindSpaceForEvent(EventData eventData, PlacementType placementType, out EventPlacement placement)
+        {
+            placement = default;
+            
+            // Get list of possible positions based on placement type
+            List<Vector3Int> possiblePositions = GetPossiblePositionsForPlacement(placementType, eventData.size);
+            
+            if (possiblePositions.Count == 0)
+            {
+                return false;
+            }
+            
+            // Shuffle positions for randomness
+            ShuffleList(possiblePositions);
+            
+            // Try each position
+            foreach (var gridPos in possiblePositions)
+            {
+                if (CanPlaceEventAt(gridPos, eventData.size, placementType))
+                {
+                    // Calculate world position and rotation
+                    Vector3 worldPos = GridToWorldPosition(gridPos, eventData.size, placementType);
+                    Quaternion rotation = GetRotationForPlacement(gridPos, placementType);
+                    
+                    placement = new EventPlacement(eventData, worldPos, rotation, placementType, gridPos);
+                    
+                    // Mark space as occupied
+                    MarkSpaceAsOccupied(gridPos, eventData.size, placementType);
+                    
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+        
+        /// <summary>
+        /// Get list of possible grid positions for a placement type
+        /// </summary>
+        private List<Vector3Int> GetPossiblePositionsForPlacement(PlacementType placementType, Vector3Int size)
+        {
+            List<Vector3Int> positions = new List<Vector3Int>();
+            
+            switch (placementType)
+            {
+                case PlacementType.Wall:
+                    // North wall (Z = depth - 1)
+                    for (int x = 1; x < roomConfig.roomWidth - 1 - size.x + 1; x++)
+                    {
+                        for (int y = 0; y < roomConfig.roomHeight - 1 - size.y + 1; y++)
+                        {
+                            positions.Add(new Vector3Int(x, y, roomConfig.roomDepth - 1));
+                        }
+                    }
+                    
+                    // South wall (Z = 0)
+                    for (int x = 1; x < roomConfig.roomWidth - 1 - size.x + 1; x++)
+                    {
+                        for (int y = 0; y < roomConfig.roomHeight - 1 - size.y + 1; y++)
+                        {
+                            positions.Add(new Vector3Int(x, y, 0));
+                        }
+                    }
+                    
+                    // East wall (X = width - 1)
+                    for (int z = 1; z < roomConfig.roomDepth - 1 - size.x + 1; z++)
+                    {
+                        for (int y = 0; y < roomConfig.roomHeight - 1 - size.y + 1; y++)
+                        {
+                            positions.Add(new Vector3Int(roomConfig.roomWidth - 1, y, z));
+                        }
+                    }
+                    
+                    // West wall (X = 0)
+                    for (int z = 1; z < roomConfig.roomDepth - 1 - size.x + 1; z++)
+                    {
+                        for (int y = 0; y < roomConfig.roomHeight - 1 - size.y + 1; y++)
+                        {
+                            positions.Add(new Vector3Int(0, y, z));
+                        }
+                    }
+                    break;
+                    
+                case PlacementType.Floor:
+                    // Floor (Y = 0)
+                    for (int x = 1; x < roomConfig.roomWidth - 1 - size.x + 1; x++)
+                    {
+                        for (int z = 1; z < roomConfig.roomDepth - 1 - size.z + 1; z++)
+                        {
+                            positions.Add(new Vector3Int(x, 0, z));
+                        }
+                    }
+                    break;
+                    
+                case PlacementType.Ceiling:
+                    // Ceiling (Y = height - 1)
+                    for (int x = 1; x < roomConfig.roomWidth - 1 - size.x + 1; x++)
+                    {
+                        for (int z = 1; z < roomConfig.roomDepth - 1 - size.z + 1; z++)
+                        {
+                            positions.Add(new Vector3Int(x, roomConfig.roomHeight - 1, z));
+                        }
+                    }
+                    break;
+            }
+            
+            return positions;
+        }
+        
+        /// <summary>
+        /// Check if an event can be placed at the given grid position
+        /// For walls, size is interpreted based on wall orientation
+        /// </summary>
+        private bool CanPlaceEventAt(Vector3Int gridPos, Vector3Int size, PlacementType placementType)
+        {
+            if (placementType == PlacementType.Wall)
+            {
+                // Determine wall orientation
+                bool isWestWall = (gridPos.x == 0);
+                bool isEastWall = (gridPos.x == roomConfig.roomWidth - 1);
+                bool isSouthWall = (gridPos.z == 0);
+                bool isNorthWall = (gridPos.z == roomConfig.roomDepth - 1);
+                
+                if (isWestWall || isEastWall)
+                {
+                    // West/East wall: size.x = Z (width), size.y = Y (height), size.z = X (depth)
+                    for (int z = 0; z < size.x; z++) // Width along Z
+                    {
+                        for (int y = 0; y < size.y; y++) // Height along Y
+                        {
+                            for (int x = 0; x < size.z; x++) // Depth along X
+                            {
+                                Vector3Int checkPos = gridPos + new Vector3Int(x, y, z);
+                                
+                                // Check if already occupied
+                                if (occupiedGridPositions.Contains(checkPos))
+                                {
+                                    return false;
+                                }
+                                
+                                // Check bounds
+                                if (checkPos.x < 0 || checkPos.x >= roomConfig.roomWidth ||
+                                    checkPos.y < 0 || checkPos.y >= roomConfig.roomHeight ||
+                                    checkPos.z < 0 || checkPos.z >= roomConfig.roomDepth)
+                                {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+                else if (isSouthWall || isNorthWall)
+                {
+                    // North/South wall: size.x = X (width), size.y = Y (height), size.z = Z (depth)
+                    for (int x = 0; x < size.x; x++) // Width along X
+                    {
+                        for (int y = 0; y < size.y; y++) // Height along Y
+                        {
+                            for (int z = 0; z < size.z; z++) // Depth along Z
+                            {
+                                Vector3Int checkPos = gridPos + new Vector3Int(x, y, z);
+                                
+                                // Check if already occupied
+                                if (occupiedGridPositions.Contains(checkPos))
+                                {
+                                    return false;
+                                }
+                                
+                                // Check bounds
+                                if (checkPos.x < 0 || checkPos.x >= roomConfig.roomWidth ||
+                                    checkPos.y < 0 || checkPos.y >= roomConfig.roomHeight ||
+                                    checkPos.z < 0 || checkPos.z >= roomConfig.roomDepth)
+                                {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // Floor/Ceiling: straightforward X, Y, Z
+                for (int x = 0; x < size.x; x++)
+                {
+                    for (int y = 0; y < size.y; y++)
+                    {
+                        for (int z = 0; z < size.z; z++)
+                        {
+                            Vector3Int checkPos = gridPos + new Vector3Int(x, y, z);
+                            
+                            // Check if already occupied
+                            if (occupiedGridPositions.Contains(checkPos))
+                            {
+                                return false;
+                            }
+                            
+                            // Check bounds
+                            if (checkPos.x < 0 || checkPos.x >= roomConfig.roomWidth ||
+                                checkPos.y < 0 || checkPos.y >= roomConfig.roomHeight ||
+                                checkPos.z < 0 || checkPos.z >= roomConfig.roomDepth)
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            return true;
+        }
+        
+        /// <summary>
+        /// Mark grid space as occupied by an event
+        /// For walls, size is interpreted based on wall orientation
+        /// </summary>
+        private void MarkSpaceAsOccupied(Vector3Int gridPos, Vector3Int size, PlacementType placementType)
+        {
+            if (placementType == PlacementType.Wall)
+            {
+                // Determine wall orientation
+                bool isWestWall = (gridPos.x == 0);
+                bool isEastWall = (gridPos.x == roomConfig.roomWidth - 1);
+                bool isSouthWall = (gridPos.z == 0);
+                bool isNorthWall = (gridPos.z == roomConfig.roomDepth - 1);
+                
+                if (isWestWall || isEastWall)
+                {
+                    // West/East wall: size.x = Z (width), size.y = Y (height), size.z = X (depth)
+                    for (int z = 0; z < size.x; z++) // Width along Z
+                    {
+                        for (int y = 0; y < size.y; y++) // Height along Y
+                        {
+                            for (int x = 0; x < size.z; x++) // Depth along X (usually 1)
+                            {
+                                Vector3Int pos = gridPos + new Vector3Int(x, y, z);
+                                occupiedGridPositions.Add(pos);
+                            }
+                        }
+                    }
+                }
+                else if (isSouthWall || isNorthWall)
+                {
+                    // North/South wall: size.x = X (width), size.y = Y (height), size.z = Z (depth)
+                    for (int x = 0; x < size.x; x++) // Width along X
+                    {
+                        for (int y = 0; y < size.y; y++) // Height along Y
+                        {
+                            for (int z = 0; z < size.z; z++) // Depth along Z (usually 1)
+                            {
+                                Vector3Int pos = gridPos + new Vector3Int(x, y, z);
+                                occupiedGridPositions.Add(pos);
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // Floor/Ceiling: straightforward X, Y, Z
+                for (int x = 0; x < size.x; x++)
+                {
+                    for (int y = 0; y < size.y; y++)
+                    {
+                        for (int z = 0; z < size.z; z++)
+                        {
+                            Vector3Int pos = gridPos + new Vector3Int(x, y, z);
+                            occupiedGridPositions.Add(pos);
+                        }
+                    }
+                }
+            }
+            
+            Log($"Marked {size.x}x{size.y}x{size.z} blocks as occupied at {gridPos} ({placementType})");
+        }
+        
+        /// <summary>
+        /// Convert grid position to world position (for single block)
+        /// </summary>
+        private Vector3 GridToWorldPosition(Vector3Int gridPos)
+        {
+            return new Vector3(
+                gridPos.x * roomConfig.cubeSize + roomConfig.cubeSize / 2f,
+                gridPos.y * roomConfig.cubeSize + roomConfig.cubeSize / 2f,
+                gridPos.z * roomConfig.cubeSize + roomConfig.cubeSize / 2f
+            );
+        }
+        
+        /// <summary>
+        /// Convert grid position to world position for multi-block events
+        /// Returns the CENTER position of the event (for center pivot prefabs)
+        /// </summary>
+        private Vector3 GridToWorldPosition(Vector3Int gridPos, Vector3Int size, PlacementType placementType)
+        {
+            // Base position (corner of the starting block)
+            Vector3 basePos = new Vector3(
+                gridPos.x * roomConfig.cubeSize,
+                gridPos.y * roomConfig.cubeSize,
+                gridPos.z * roomConfig.cubeSize
+            );
+            
+            // Wall placement: Y coordinate needs offset (walls start at cubeSize, not 0)
+            if (placementType == PlacementType.Wall)
+            {
+                basePos.y += roomConfig.cubeSize; // Walls start at Y=1, not Y=0
+            }
+            
+            // Calculate center offset based on event size and wall direction
+            Vector3 centerOffset = Vector3.zero;
+            
+            if (placementType == PlacementType.Wall)
+            {
+                // For wall placement, determine which wall based on grid position
+                bool isWestWall = (gridPos.x == 0);
+                bool isEastWall = (gridPos.x == roomConfig.roomWidth - 1);
+                bool isSouthWall = (gridPos.z == 0);
+                bool isNorthWall = (gridPos.z == roomConfig.roomDepth - 1);
+                
+                // Apply center offset only on axes PARALLEL to the wall
+                // NOT on the axis perpendicular to the wall (event embeds into wall)
+                
+                if (isWestWall || isEastWall)
+                {
+                    // West/East wall: size.x = Z (width), size.y = Y (height), size.z = X (depth)
+                    centerOffset.x = 0; // NO X offset (into wall, depth always minimal)
+                    centerOffset.y = (size.y - 1) * roomConfig.cubeSize / 2f; // Height
+                    centerOffset.z = (size.x - 1) * roomConfig.cubeSize / 2f; // Width (size.x maps to Z!)
+                }
+                else if (isSouthWall || isNorthWall)
+                {
+                    // North/South wall: size.x = X (width), size.y = Y (height), size.z = Z (depth)
+                    centerOffset.x = (size.x - 1) * roomConfig.cubeSize / 2f; // Width
+                    centerOffset.y = (size.y - 1) * roomConfig.cubeSize / 2f; // Height
+                    centerOffset.z = 0; // NO Z offset (into wall, depth always minimal)
+                }
+            }
+            else
+            {
+                // Floor/Ceiling: center offset on all axes
+                centerOffset = new Vector3(
+                    (size.x - 1) * roomConfig.cubeSize / 2f,
+                    (size.y - 1) * roomConfig.cubeSize / 2f,
+                    (size.z - 1) * roomConfig.cubeSize / 2f
+                );
+            }
+            
+            return basePos + centerOffset;
+        }
+        
+        /// <summary>
+        /// Convert world position to grid position
+        /// Assumes corner pivot positioning (matching wall cubes)
+        /// </summary>
+        private Vector3Int WorldToGridPosition(Vector3 worldPos)
+        {
+            // Wall cubes use corner pivot, so no offset needed
+            // Direct division and rounding
+            return new Vector3Int(
+                Mathf.RoundToInt(worldPos.x / roomConfig.cubeSize),
+                Mathf.RoundToInt(worldPos.y / roomConfig.cubeSize),
+                Mathf.RoundToInt(worldPos.z / roomConfig.cubeSize)
+            );
+        }
+        
+        /// <summary>
+        /// Convert wall world position to grid position
+        /// Wall coordinates start at Y=cubeSize, so need to adjust
+        /// </summary>
+        private Vector3Int WorldToGridPositionForWall(Vector3 worldPos)
+        {
+            // Walls start at Y = cubeSize (1), but grid starts at 0
+            // So World Y=1 → Grid Y=0, World Y=2 → Grid Y=1, etc.
+            return new Vector3Int(
+                Mathf.RoundToInt(worldPos.x / roomConfig.cubeSize),
+                Mathf.RoundToInt((worldPos.y - roomConfig.cubeSize) / roomConfig.cubeSize),
+                Mathf.RoundToInt(worldPos.z / roomConfig.cubeSize)
+            );
+        }
+        
+        /// <summary>
+        /// Calculate wall grid position based on start position and loop indices
+        /// More accurate than world→grid conversion
+        /// </summary>
+        private Vector3Int CalculateWallGridPosition(Vector3Int startGridPos, Vector3 widthDir, Vector3 heightDir, int w, int h)
+        {
+            // Determine which axis to increment based on widthDir
+            Vector3Int gridPos = startGridPos;
+            
+            // Width direction (horizontal along the wall)
+            if (widthDir == Vector3.right)
+            {
+                gridPos.x += w; // North/South walls move in X
+            }
+            else if (widthDir == Vector3.forward)
+            {
+                gridPos.z += w; // East/West walls move in Z
+            }
+            else if (widthDir == Vector3.left)
+            {
+                gridPos.x -= w;
+            }
+            else if (widthDir == Vector3.back)
+            {
+                gridPos.z -= w;
+            }
+            
+            // Height direction (always up for walls)
+            gridPos.y += h;
+            
+            return gridPos;
+        }
+        
+        /// <summary>
+        /// Get rotation for event based on grid position and placement type
+        /// </summary>
+        private Quaternion GetRotationForPlacement(Vector3Int gridPos, PlacementType placementType)
+        {
+            if (placementType != PlacementType.Wall)
+            {
+                return Quaternion.identity;
+            }
+            
+            // Determine which wall based on position
+            // North wall (Z = depth - 1) - face south (180 degrees)
+            if (gridPos.z == roomConfig.roomDepth - 1)
+            {
+                return Quaternion.Euler(0, 180, 0);
+            }
+            // South wall (Z = 0) - face north (0 degrees)
+            else if (gridPos.z == 0)
+            {
+                return Quaternion.Euler(0, 0, 0);
+            }
+            // East wall (X = width - 1) - face west (270 degrees)
+            else if (gridPos.x == roomConfig.roomWidth - 1)
+            {
+                return Quaternion.Euler(0, 270, 0);
+            }
+            // West wall (X = 0) - face east (90 degrees)
+            else if (gridPos.x == 0)
+            {
+                return Quaternion.Euler(0, 90, 0);
+            }
+            
+            return Quaternion.identity;
+        }
+        
+        /// <summary>
+        /// Spawn an event in the room
+        /// </summary>
+        private void SpawnEvent(EventPlacement placement)
+        {
+            if (placement.eventData == null || placement.eventData.eventPrefab == null)
+            {
+                return;
+            }
+            
+            GameObject eventObj = Instantiate(
+                placement.eventData.eventPrefab,
+                placement.worldPosition,
+                placement.rotation
+            );
+            
+            eventObj.name = $"Event_{placement.eventData.eventName}";
+            
+            // Set required items on the event if it supports it
+            var interactableEvent = eventObj.GetComponent<Interactables.InteractableEvent>();
+            if (interactableEvent != null && placement.eventData.HasRequiredItems)
+            {
+                interactableEvent.SetRequiredItems(placement.eventData.requiredItems);
+            }
+            
+            // Network spawn
+            NetworkObject netObj = eventObj.GetComponent<NetworkObject>();
+            if (netObj != null)
+            {
+                netObj.Spawn(true);
+            }
+            else
+            {
+                Debug.LogWarning($"[RoomGenerator] Event {placement.eventData.eventName} has no NetworkObject component!");
+            }
+            
+            spawnedEvents.Add(eventObj);
+            generatedObjects.Add(eventObj);
+            
+            Log($"Spawned event '{placement.eventData.eventName}' at {placement.worldPosition} ({placement.placementType})");
+        }
+        
+        /// <summary>
+        /// Add event's required items to the item pool so they spawn on buttons
+        /// </summary>
+        private void AssignRequiredItemsToButtons(EventData eventData)
+        {
+            if (!eventData.HasRequiredItems)
+            {
+                return;
+            }
+            
+            foreach (var item in eventData.requiredItems)
+            {
+                if (item != null)
+                {
+                    // Add to required items list
+                    if (!itemPool.requiredItems.Contains(item))
+                    {
+                        itemPool.requiredItems.Add(item);
+                        Log($"Added required item '{item.itemName}' for event '{eventData.eventName}'");
+                    }
+                }
+            }
+        }
+        
+        #endregion
     }
 }
 

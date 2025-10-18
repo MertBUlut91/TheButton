@@ -1,0 +1,22 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 828654c5380dd98499e678ec5675011e, type: 3}
+  m_Name: RoomEventPool
+  m_EditorClassIdentifier: Assembly-CSharp::TheButton.Game.RoomEventPool
+  requiredEvents:
+  - {fileID: 11400000, guid: 704607c1977967f4fbb7daa8367f1e3a, type: 2}
+  - {fileID: 11400000, guid: 1af87094c83db554d9d94945e1ad9333, type: 2}
+  - {fileID: 11400000, guid: fe674ead2aba9df499bbcaa3fb053305, type: 2}
+  - {fileID: 11400000, guid: ab879af9edd3a7d44b4369a1fa7d009b, type: 2}
+  randomEventPool: []
+  minRandomEvents: 1
+  maxRandomEvents: 10

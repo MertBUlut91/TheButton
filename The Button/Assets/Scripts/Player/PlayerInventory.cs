@@ -371,6 +371,36 @@ namespace TheButton.Player
         }
         
         /// <summary>
+        /// Check if player has a specific item by asset name
+        /// </summary>
+        public bool HasItem(string itemAssetName)
+        {
+            foreach (var itemData in inventoryItems)
+            {
+                if (itemData != null && itemData.name == itemAssetName)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        
+        /// <summary>
+        /// Get the first slot containing a specific item by asset name (returns slot index)
+        /// </summary>
+        public int GetFirstItemSlot(string itemAssetName)
+        {
+            for (int i = 0; i < inventoryItems.Count; i++)
+            {
+                if (inventoryItems[i] != null && inventoryItems[i].name == itemAssetName)
+                {
+                    return i; // Return slot index
+                }
+            }
+            return -1;
+        }
+        
+        /// <summary>
         /// Set the selected slot (0-4)
         /// </summary>
         public void SetSelectedSlot(int slotIndex)

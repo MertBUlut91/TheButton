@@ -73,6 +73,10 @@ namespace TheButton.Game
         
         [Tooltip("Height offset for item spawn points")]
         public float itemSpawnOffset = 0.5f;
+        
+        [Header("Events")]
+        [Tooltip("Pool of events that can spawn in the room (doors, puzzles, etc.)")]
+        public RoomEventPool eventPool;
     }
 }
 
