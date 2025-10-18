@@ -97,6 +97,7 @@ namespace TheButton.Player
             if (Input.GetKeyDown(KeyCode.Alpha2)) inventory.SetSelectedSlot(1);
             if (Input.GetKeyDown(KeyCode.Alpha3)) inventory.SetSelectedSlot(2);
             if (Input.GetKeyDown(KeyCode.Alpha4)) inventory.SetSelectedSlot(3);
+            if (Input.GetKeyDown(KeyCode.Alpha5)) inventory.SetSelectedSlot(4);
         }
         
         private void HandleItemActions()

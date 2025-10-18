@@ -72,6 +72,22 @@ namespace TheButton.Items
         [Tooltip("Interaction range when held")]
         public float interactionRange = 2f;
         
+        [Header("Weapon Properties")]
+        [Tooltip("Damage dealt per attack (for weapons)")]
+        [Range(1f, 100f)]
+        public float weaponDamage = 10f;
+        
+        [Tooltip("Attack range (for weapons)")]
+        [Range(1f, 50f)]
+        public float attackRange = 2f;
+        
+        [Tooltip("Time between attacks in seconds")]
+        [Range(0.1f, 5f)]
+        public float attackSpeed = 1f;
+        
+        [Tooltip("Is this a melee weapon? (false = ranged)")]
+        public bool isMeleeWeapon = true;
+        
         [Header("World Prefab")]
         [Tooltip("The world item prefab to spawn (must have WorldItem component)")]
         public GameObject itemPrefab;
@@ -95,6 +111,11 @@ namespace TheButton.Items
         /// Check if this item is a key
         /// </summary>
         public bool IsKey => category == ItemCategory.Key;
+        
+        /// <summary>
+        /// Check if this item is a weapon
+        /// </summary>
+        public bool IsWeapon => category == ItemCategory.Weapon;
     }
 }
 

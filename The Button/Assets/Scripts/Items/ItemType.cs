@@ -31,6 +31,14 @@ namespace TheButton.Items
         Wrench,         // Repair
         Hammer,         // Break/build
         
+        // Weapons
+        Pistol,         // Ranged weapon - low damage, fast fire rate
+        Rifle,          // Ranged weapon - medium damage, medium fire rate
+        Shotgun,        // Ranged weapon - high damage, slow fire rate
+        Knife,          // Melee weapon - low damage, very fast
+        Bat,            // Melee weapon - medium damage, medium speed
+        Axe,            // Melee weapon - high damage, slow speed
+        
         // Generic
         Generic         // Default item type
     }

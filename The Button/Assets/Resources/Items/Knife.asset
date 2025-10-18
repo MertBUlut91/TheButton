@@ -1,0 +1,38 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f5b96d0e6f5a94e59b941d6de3e37cc2, type: 3}
+  m_Name: Knife
+  m_EditorClassIdentifier: Assembly-CSharp::TheButton.Items.ItemData
+  itemName: Knife
+  description: A sharp knife for close combat. Fast attack speed, low damage.
+  icon: {fileID: 0}
+  category: 4
+  itemType: 38
+  weight: 1
+  isStackable: 0
+  maxStackSize: 1
+  healthRestore: 0
+  hungerRestore: 0
+  thirstRestore: 0
+  staminaRestore: 0
+  damageAmount: 0
+  canBePlaced: 0
+  placedPrefab: {fileID: 0}
+  canBeHeld: 1
+  handModel: {fileID: 0}
+  interactionRange: 2
+  weaponDamage: 10
+  attackRange: 2
+  attackSpeed: 0.3
+  isMeleeWeapon: 1
+  itemPrefab: {fileID: 0}
+

@@ -27,6 +27,7 @@ namespace TheButton.Player
         private IInteractable currentInteractable;
         private GameObject currentInteractableObject;
         private PlayerItemUsage playerItemUsage;
+        private string lastPromptText = string.Empty;
         
         // Event for UI to subscribe to
         public event System.Action<string> OnInteractionPromptChanged;
@@ -153,10 +154,20 @@ namespace TheButton.Player
                 }
             }
             
-            // Update UI if interactable changed
+            // Update UI if interactable changed OR if we're still looking at the same interactable
+            // (prompt text might have changed, e.g., cover removed)
             if (currentInteractable != previousInteractable)
             {
                 UpdateInteractionPrompt();
+            }
+            else if (currentInteractable != null)
+            {
+                // Still looking at same interactable, but check if prompt changed
+                string currentPrompt = currentInteractable.GetInteractionPrompt();
+                if (currentPrompt != lastPromptText)
+                {
+                    UpdateInteractionPrompt();
+                }
             }
         }
         
@@ -165,10 +176,12 @@ namespace TheButton.Player
             if (currentInteractable != null)
             {
                 string prompt = currentInteractable.GetInteractionPrompt();
+                lastPromptText = prompt;
                 OnInteractionPromptChanged?.Invoke(prompt);
             }
             else
             {
+                lastPromptText = string.Empty;
                 OnInteractionPromptChanged?.Invoke(string.Empty);
             }
         }

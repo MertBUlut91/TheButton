@@ -14,9 +14,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::TheButton.Game.RoomEventPool
   requiredEvents:
   - {fileID: 11400000, guid: 704607c1977967f4fbb7daa8367f1e3a, type: 2}
-  - {fileID: 11400000, guid: 1af87094c83db554d9d94945e1ad9333, type: 2}
-  - {fileID: 11400000, guid: fe674ead2aba9df499bbcaa3fb053305, type: 2}
-  - {fileID: 11400000, guid: ab879af9edd3a7d44b4369a1fa7d009b, type: 2}
+  - {fileID: 11400000, guid: 2eef1bc1e968f4fdd9b9c8bc07114609, type: 2}
+  - {fileID: 11400000, guid: 2eef1bc1e968f4fdd9b9c8bc07114609, type: 2}
+  - {fileID: 11400000, guid: 2eef1bc1e968f4fdd9b9c8bc07114609, type: 2}
+  - {fileID: 11400000, guid: 2eef1bc1e968f4fdd9b9c8bc07114609, type: 2}
+  - {fileID: 11400000, guid: 2eef1bc1e968f4fdd9b9c8bc07114609, type: 2}
+  - {fileID: 11400000, guid: 2eef1bc1e968f4fdd9b9c8bc07114609, type: 2}
   randomEventPool: []
   minRandomEvents: 1
   maxRandomEvents: 10

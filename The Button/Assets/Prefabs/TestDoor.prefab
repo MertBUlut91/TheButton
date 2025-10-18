@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 1926465188357039218}
   - component: {fileID: 1559545722767852521}
   - component: {fileID: 839423510107115726}
+  - component: {fileID: 4580394536281536878}
   m_Layer: 0
   m_Name: TestDoor
   m_TagString: Untagged
@@ -137,3 +138,26 @@ MonoBehaviour:
   AutoObjectParentSync: 1
   SyncOwnerTransformWhenParented: 1
   AllowOwnerToParent: 0
+--- !u!114 &4580394536281536878
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8892726836891018171}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3ba2f0ee3829dd145aca22b0d7c7ad83, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::TheButton.Interactables.ValveEvent
+  ShowTopMostFoldoutHeaderGroup: 1
+  requiredItems: []
+  oneTimeUse: 0
+  visualRenderer: {fileID: 0}
+  lockedColor: {r: 1, g: 0, b: 0, a: 1}
+  unlockedColor: {r: 0, g: 1, b: 0, a: 1}
+  activateSound: {fileID: 0}
+  deniedSound: {fileID: 0}
+  rotationSpeed: 90
+  valveHandle: {fileID: 0}
+  activationEffect: {fileID: 0}

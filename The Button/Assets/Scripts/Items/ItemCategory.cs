@@ -9,7 +9,8 @@ namespace TheButton.Items
         Consumable,   // Can be consumed (food, water, medkit) - disappears after use
         Collectible,  // Can be collected and placed (furniture, decoration) - stays in world when placed
         Usable,       // Can be held and used (key, screwdriver, pen) - stays in inventory
-        Key           // Special usable item for doors
+        Key,          // Special usable item for doors
+        Weapon        // Can be equipped and used to attack - stays in inventory
     }
 }
 

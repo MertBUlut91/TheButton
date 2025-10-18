@@ -154,6 +154,13 @@ namespace TheButton.Player
                     consumeItem = false;
                     break;
                     
+                case ItemCategory.Weapon:
+                    // Weapons are equipped/unequipped, not "used" in the traditional sense
+                    // The PlayerWeaponSystem handles weapon equipping automatically when slot is selected
+                    Debug.Log($"[Inventory] {itemData.itemName} is a weapon. Select the slot (1-5) to equip it, then left-click to attack.");
+                    consumeItem = false;
+                    break;
+                    
                 default:
                     Debug.LogWarning($"[Inventory] Unknown item category: {itemData.category}");
                     break;
