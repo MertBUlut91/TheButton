@@ -8,7 +8,6 @@ namespace TheButton.Player
     /// Syncs animations across network
     /// Integrates with PlayerController for movement and PlayerWeaponSystem for attacks
     /// </summary>
-    [RequireComponent(typeof(Animator))]
     public class PlayerAnimationController : NetworkBehaviour
     {
         [Header("References")]
