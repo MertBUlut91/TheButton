@@ -330,3 +330,5 @@ The weapon system is now fully implemented and ready to use! Players can:
 
 All weapon properties are configurable through ItemData ScriptableObjects, making it easy to create and balance different weapons without code changes.
 
+
+

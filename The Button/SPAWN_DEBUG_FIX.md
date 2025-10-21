@@ -222,3 +222,5 @@ RoomConfiguration bir ScriptableObject:
 **Test**: Console log'larına bak  
 **Expected**: Her iki oyuncu (7.5, 1, 7.5) gibi bir pozisyonda
 
+
+

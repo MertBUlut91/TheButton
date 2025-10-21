@@ -453,3 +453,5 @@ Sistem **tamamen tamamlandı ve kullanıma hazır**! 🎉
 
 *GeneralInteractableEvent - Event'leri basit, güçlü ve eğlenceli hale getiriyor.*
 
+
+

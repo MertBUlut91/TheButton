@@ -273,3 +273,5 @@ GenerateRoom(); // Yeni oda oluştur
 **Test**: Unity'de test edilmeli  
 **Tag**: "ItemSpawnPoint" unutma!
 
+
+

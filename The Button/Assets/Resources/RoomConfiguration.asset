@@ -12,22 +12,27 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a7f8c3e4d9b2456a8e9f1c2d3e4f5a6b, type: 3}
   m_Name: RoomConfiguration
   m_EditorClassIdentifier: Assembly-CSharp::TheButton.Game.RoomConfiguration
-  roomWidth: 10
-  roomHeight: 10
-  roomDepth: 10
+  roomPrefab: {fileID: 7525169321190705951, guid: 9030dd69f94c54c95ba1984dba0f9c3d, type: 3}
+  roomWidth: 8
+  roomHeight: 8
+  roomDepth: 8
   cubeSize: 1
   floorPrefab: {fileID: 6433596238453882974, guid: f3d4349a0c631443aa506e4b4368d953, type: 3}
   ceilingPrefab: {fileID: 8956947849132224924, guid: d860b9a5100644bdf9b578b4b7d7849c, type: 3}
   wallCubeWithButtonPrefab: {fileID: 7581338212159547410, guid: cf278738770204ecf94b2d9c1020bf97, type: 3}
   plainWallCubePrefab: {fileID: 6187482590208171239, guid: 630de74f0635e4a8b9641ee155e73a43, type: 3}
   cornerCubePrefab: {fileID: 1167713260660424285, guid: a186f62dd15b147b19c975b65b58412d, type: 3}
-  minButtonDensityPercent: 25
-  maxButtonDensityPercent: 60
-  floorMaterial: {fileID: 0}
-  ceilingMaterial: {fileID: 0}
-  wallMaterial: {fileID: 0}
+  minButtonDensityPercent: 15
+  maxButtonDensityPercent: 71.5
+  wallCubeWithEnemyButtonPrefab: {fileID: 5401397930579489, guid: 0b3308ec27285438aa92f57400b9cf55, type: 3}
+  minEnemyButtonDensityPercent: 5
+  maxEnemyButtonDensityPercent: 15
+  floorMaterial: {fileID: 2100000, guid: 69f0f4e73a6f3164480ecf2c4d0ded10, type: 3}
+  ceilingMaterial: {fileID: -3107691268837785103, guid: 1c256bd234616435ba8bf993ec87ec4d, type: 3}
+  wallMaterial: {fileID: 2100000, guid: 799b16d1094eaed4bac02c11c52dc744, type: 2}
   createCeilingSpawnPoint: 1
   spawnPointCubePrefab: {fileID: 8480751738691363074, guid: b6478f3fc29524158b9d028082582bf4, type: 3}
   playerSpawnOffset: {x: 0, y: 0, z: 0}
   itemSpawnOffset: 0.5
   eventPool: {fileID: 11400000, guid: 309b2abf49f588c4893b144a5b6a5759, type: 2}
+  enemyPool: {fileID: 11400000, guid: c8478c0b272f6431d8982c246d75444e, type: 2}

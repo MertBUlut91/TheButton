@@ -9,46 +9,62 @@ namespace TheButton.Game
     [CreateAssetMenu(fileName = "RoomConfiguration", menuName = "The Button/Room Configuration")]
     public class RoomConfiguration : ScriptableObject
     {
-        [Header("Room Dimensions")]
-        [Tooltip("Width of the room in cubes")]
+        [Header("Room Prefab System")]
+        [Tooltip("Hazır oda prefab'ı (RoomPrefabManager component'i ile)")]
+        public GameObject roomPrefab;
+        
+        [Header("Room Dimensions (DEPRECATED - Use Room Prefab)")]
+        [Tooltip("DEPRECATED: Width of the room in cubes - artık roomPrefab kullanılıyor")]
         [Range(5, 30)]
         public int roomWidth = 15;
         
-        [Tooltip("Height of the room in cubes")]
+        [Tooltip("DEPRECATED: Height of the room in cubes - artık roomPrefab kullanılıyor")]
         [Range(3, 15)]
         public int roomHeight = 10;
         
-        [Tooltip("Depth of the room in cubes")]
+        [Tooltip("DEPRECATED: Depth of the room in cubes - artık roomPrefab kullanılıyor")]
         [Range(5, 30)]
         public int roomDepth = 15;
         
         [Tooltip("Size of each cube unit")]
         public float cubeSize = 1f;
         
-        [Header("Structure Prefabs")]
-        [Tooltip("Prefab for floor tiles")]
+        [Header("Structure Prefabs (DEPRECATED - Use Room Prefab)")]
+        [Tooltip("DEPRECATED: Prefab for floor tiles - artık roomPrefab'da hazır")]
         public GameObject floorPrefab;
         
-        [Tooltip("Prefab for ceiling tiles")]
+        [Tooltip("DEPRECATED: Prefab for ceiling tiles - artık roomPrefab'da hazır")]
         public GameObject ceilingPrefab;
         
-        [Tooltip("Wall cube with button prefab (already includes button on top)")]
+        [Tooltip("Wall cube with button prefab (marker yerine gelecek)")]
         public GameObject wallCubeWithButtonPrefab;
         
-        [Tooltip("Plain wall cube prefab (no button, just a wall)")]
+        [Tooltip("DEPRECATED: Plain wall cube prefab - marker'lar zaten duvar küpü")]
         public GameObject plainWallCubePrefab;
         
-        [Tooltip("Plain corner cube prefab (no button, for corners)")]
+        [Tooltip("DEPRECATED: Plain corner cube prefab - artık roomPrefab'da hazır")]
         public GameObject cornerCubePrefab;
         
         [Header("Button Density")]
-        [Tooltip("Minimum percentage of wall positions that will have buttons (0-100)")]
+        [Tooltip("Minimum percentage of wall positions that will have item spawn buttons (0-100)")]
         [Range(0f, 100f)]
         public float minButtonDensityPercent = 20f;
         
-        [Tooltip("Maximum percentage of wall positions that will have buttons (0-100)")]
+        [Tooltip("Maximum percentage of wall positions that will have item spawn buttons (0-100)")]
         [Range(0f, 100f)]
         public float maxButtonDensityPercent = 50f;
+        
+        [Header("Enemy Spawn Button")]
+        [Tooltip("Wall cube with enemy spawn button prefab (same visual as item button)")]
+        public GameObject wallCubeWithEnemyButtonPrefab;
+        
+        [Tooltip("Minimum percentage of wall positions that will have enemy spawn buttons (0-100)")]
+        [Range(0f, 100f)]
+        public float minEnemyButtonDensityPercent = 5f;
+        
+        [Tooltip("Maximum percentage of wall positions that will have enemy spawn buttons (0-100)")]
+        [Range(0f, 100f)]
+        public float maxEnemyButtonDensityPercent = 15f;
         
         [Header("Materials")]
         [Tooltip("Material for floor")]
@@ -77,6 +93,10 @@ namespace TheButton.Game
         [Header("Events")]
         [Tooltip("Pool of events that can spawn in the room (doors, puzzles, etc.)")]
         public RoomEventPool eventPool;
+        
+        [Header("Enemies")]
+        [Tooltip("Pool of enemies that can spawn in the room")]
+        public TheButton.Enemy.EnemyPool enemyPool;
     }
 }
 

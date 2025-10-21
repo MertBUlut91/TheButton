@@ -5,6 +5,7 @@ using Unity.Netcode;
 using UnityEngine;
 using TheButton.Items;
 using TheButton.Interactables;
+using TheButton.Enemy;
 
 namespace TheButton.Game
 {
@@ -54,11 +55,13 @@ namespace TheButton.Game
         {
             public Vector3 position;
             public Quaternion rotation;
+            public GameObject plainWallCube; // Reference to plain wall cube (to be replaced by enemy button)
             
-            public WallPosition(Vector3 pos, Quaternion rot)
+            public WallPosition(Vector3 pos, Quaternion rot, GameObject plainWall = null)
             {
                 position = pos;
                 rotation = rot;
+                plainWallCube = plainWall;
             }
         }
         
@@ -163,6 +166,7 @@ namespace TheButton.Game
         
         /// <summary>
         /// Generate room in batches for performance
+        /// NEW: Uses prefab-based system with wall markers
         /// </summary>
         private IEnumerator GenerateRoomCoroutine(int seed)
         {
@@ -172,6 +176,48 @@ namespace TheButton.Game
             // Clear previous generation
             ClearRoom();
             yield return null;
+            
+            // Check if using new prefab system or old procedural system
+            if (roomConfig.roomPrefab != null)
+            {
+                // NEW PREFAB SYSTEM
+                Log("Using prefab-based room system...");
+                
+                Log("Loading room prefab...");
+                GameObject roomInstance = LoadRoomPrefab();
+                if (roomInstance == null)
+                {
+                    Debug.LogError("[RoomGenerator] Failed to load room prefab!");
+                    yield break;
+                }
+                yield return null;
+                
+                Log("Getting markers from manager...");
+                List<WallMarker> markers = GetMarkersFromManager(roomInstance);
+                if (markers == null || markers.Count == 0)
+                {
+                    Debug.LogError("[RoomGenerator] No markers found in room prefab!");
+                    yield break;
+                }
+                yield return null;
+                
+                // Calculate room center from prefab bounds first
+                CalculateRoomCenterFromPrefab(roomInstance);
+                yield return null;
+                
+                // Place events before processing markers
+                Log("Placing events...");
+                PlaceEventsInPrefabRoom(markers);
+                yield return null;
+                
+                Log($"Processing {markers.Count} markers...");
+                ProcessMarkers(markers);
+                yield return null;
+            }
+            else
+            {
+                // OLD PROCEDURAL SYSTEM (DEPRECATED)
+                Log("Using old procedural room system (DEPRECATED)...");
             
             // Calculate room center
             roomCenter = new Vector3(
@@ -192,6 +238,11 @@ namespace TheButton.Game
             Log("Generating walls with buttons...");
             GenerateWallsWithButtons();
             yield return null;
+            
+            Log("Generating enemy spawn buttons...");
+            GenerateEnemySpawnButtons();
+            yield return null;
+            }
             
             Log("Creating ceiling spawn point...");
             if (roomConfig.createCeilingSpawnPoint)
@@ -444,6 +495,85 @@ namespace TheButton.Game
         }
         
         /// <summary>
+        /// Generate enemy spawn buttons on remaining available wall positions
+        /// </summary>
+        private void GenerateEnemySpawnButtons()
+        {
+            Log("[DEBUG] GenerateEnemySpawnButtons called!");
+            
+            // Check if enemy system is configured
+            if (roomConfig.wallCubeWithEnemyButtonPrefab == null)
+            {
+                Log("[DEBUG] Enemy spawn button prefab not assigned. Skipping enemy button generation.");
+                return;
+            }
+            
+            Log($"[DEBUG] Enemy button prefab assigned: {roomConfig.wallCubeWithEnemyButtonPrefab.name}");
+            
+            if (roomConfig.enemyPool == null)
+            {
+                Log("[DEBUG] Enemy pool not assigned. Skipping enemy button generation.");
+                return;
+            }
+            
+            Log($"[DEBUG] Enemy pool assigned: {roomConfig.enemyPool.name}");
+            
+            if (!roomConfig.enemyPool.IsValid())
+            {
+                Debug.LogWarning("[RoomGenerator] Enemy pool validation failed!");
+                Log("[DEBUG] Enemy pool validation FAILED!");
+                return;
+            }
+            
+            Log("[DEBUG] Enemy pool validation PASSED!");
+            
+            // Calculate how many enemy buttons to spawn
+            int remainingWallPositions = availableWallPositions.Count;
+            
+            Log($"[DEBUG] Remaining wall positions: {remainingWallPositions}");
+            
+            if (remainingWallPositions == 0)
+            {
+                Log("[DEBUG] No available wall positions for enemy buttons.");
+                return;
+            }
+            
+            float enemyDensityPercent = Random.Range(roomConfig.minEnemyButtonDensityPercent, roomConfig.maxEnemyButtonDensityPercent);
+            int targetEnemyButtonCount = Mathf.RoundToInt(remainingWallPositions * (enemyDensityPercent / 100f));
+            
+            // Clamp to available positions
+            targetEnemyButtonCount = Mathf.Min(targetEnemyButtonCount, remainingWallPositions);
+            
+            Log($"Enemy Button Density: {enemyDensityPercent:F1}% ({targetEnemyButtonCount} enemy buttons out of {remainingWallPositions} remaining positions)");
+            
+            if (targetEnemyButtonCount == 0)
+            {
+                Log("No enemy buttons to spawn (density too low or no available positions).");
+                return;
+            }
+            
+            // Get random enemies from pool
+            List<EnemyData> enemiesToPlace = roomConfig.enemyPool.GetRandomEnemies(targetEnemyButtonCount);
+            
+            // Shuffle available wall positions
+            ShuffleList(availableWallPositions);
+            
+            // Spawn enemy buttons
+            for (int i = 0; i < targetEnemyButtonCount && i < availableWallPositions.Count && i < enemiesToPlace.Count; i++)
+            {
+                WallPosition wallPos = availableWallPositions[i];
+                EnemyData enemyData = enemiesToPlace[i];
+                
+                if (enemyData != null)
+                {
+                    SpawnWallCubeWithEnemyButton(wallPos, enemyData);
+                }
+            }
+            
+            Log($"Spawned {targetEnemyButtonCount} enemy spawn buttons");
+        }
+        
+        /// <summary>
         /// Generate a single wall with buttons (based on button density)
         /// Pass wall start grid position for accurate occupied checking
         /// </summary>
@@ -499,21 +629,30 @@ namespace TheButton.Game
                             // Place wall cube with button
                             WallPosition wallPos = new WallPosition(position, rotation);
                             SpawnWallCubeWithButton(wallPos, items[itemIndex], itemIndex < (itemPool.requiredItems?.Count ?? 0));
+                            usedWallPositions.Add(wallPos);
                             itemIndex++;
                         }
-                        else if (roomConfig.plainWallCubePrefab != null)
+                        else
                         {
-                            // Place plain wall cube (no button)
-                            GameObject plainCube = Instantiate(roomConfig.plainWallCubePrefab, position, rotation, parent);
-                            plainCube.name = $"PlainWall_{globalPositionIndex}";
-                            
-                            NetworkObject netObj = plainCube.GetComponent<NetworkObject>();
-                            if (netObj != null)
+                            // Place plain wall cube for now (will be replaced by enemy button if selected)
+                            GameObject plainCube = null;
+                            if (roomConfig.plainWallCubePrefab != null)
                             {
-                                netObj.Spawn(true);
+                                plainCube = Instantiate(roomConfig.plainWallCubePrefab, position, rotation, parent);
+                                plainCube.name = $"PlainWall_{globalPositionIndex}";
+                                
+                                NetworkObject netObj = plainCube.GetComponent<NetworkObject>();
+                                if (netObj != null)
+                                {
+                                    netObj.Spawn(true);
+                                }
+                                
+                                generatedObjects.Add(plainCube);
                             }
                             
-                            generatedObjects.Add(plainCube);
+                            // This position is available for enemy buttons!
+                            WallPosition wallPos = new WallPosition(position, rotation, plainCube);
+                            availableWallPositions.Add(wallPos);
                         }
                         
                         globalPositionIndex++;
@@ -640,6 +779,73 @@ namespace TheButton.Game
             else
             {
                 Debug.LogError($"[RoomGenerator] WallCubeWithButton prefab has no NetworkObject component!");
+                Destroy(wallCubeObj);
+            }
+        }
+        
+        /// <summary>
+        /// Spawn a wall cube with enemy spawn button prefab at the given position
+        /// </summary>
+        private void SpawnWallCubeWithEnemyButton(WallPosition wallPos, EnemyData enemyData)
+        {
+            if (roomConfig.wallCubeWithEnemyButtonPrefab == null)
+            {
+                Debug.LogError("[RoomGenerator] WallCubeWithEnemyButton prefab is not assigned!");
+                return;
+            }
+            
+            if (enemyData == null)
+            {
+                Debug.LogError("[RoomGenerator] EnemyData is null! Cannot spawn enemy button.");
+                return;
+            }
+            
+            // Remove the plain wall cube if it exists
+            if (wallPos.plainWallCube != null)
+            {
+                NetworkObject plainNetObj = wallPos.plainWallCube.GetComponent<NetworkObject>();
+                if (plainNetObj != null && plainNetObj.IsSpawned)
+                {
+                    plainNetObj.Despawn(true);
+                }
+                else
+                {
+                    Destroy(wallPos.plainWallCube);
+                }
+                
+                generatedObjects.Remove(wallPos.plainWallCube);
+            }
+            
+            // Instantiate the wall cube with enemy button
+            GameObject wallCubeObj = Instantiate(
+                roomConfig.wallCubeWithEnemyButtonPrefab, 
+                wallPos.position, 
+                wallPos.rotation
+            );
+            wallCubeObj.name = $"WallCube_Enemy_{enemyData.enemyName}";
+            
+            // Find the EnemySpawnButton component (should be in the prefab hierarchy)
+            EnemySpawnButton enemyButton = wallCubeObj.GetComponentInChildren<EnemySpawnButton>();
+            if (enemyButton != null)
+            {
+                Log($"Setting EnemyData '{enemyData.enemyName}' to button at {wallPos.position}");
+                enemyButton.SetEnemyData(enemyData);
+            }
+            else
+            {
+                Debug.LogWarning($"[RoomGenerator] WallCube at {wallPos.position} has no EnemySpawnButton component!");
+            }
+            
+            // Get NetworkObject and spawn it
+            NetworkObject networkObject = wallCubeObj.GetComponent<NetworkObject>();
+            if (networkObject != null)
+            {
+                networkObject.Spawn(true);
+                generatedObjects.Add(wallCubeObj);
+            }
+            else
+            {
+                Debug.LogError($"[RoomGenerator] WallCubeWithEnemyButton prefab has no NetworkObject component!");
                 Destroy(wallCubeObj);
             }
         }
@@ -1371,6 +1577,580 @@ namespace TheButton.Game
                     }
                 }
             }
+        }
+        
+        #endregion
+        
+        #region Prefab-Based Room System (NEW)
+        
+        /// <summary>
+        /// Load and instantiate the room prefab
+        /// </summary>
+        private GameObject LoadRoomPrefab()
+        {
+            if (roomConfig.roomPrefab == null)
+            {
+                Debug.LogError("[RoomGenerator] Room prefab is not assigned in RoomConfiguration!");
+                return null;
+            }
+            
+            GameObject roomInstance = Instantiate(roomConfig.roomPrefab, Vector3.zero, Quaternion.identity);
+            roomInstance.name = "Room_Instance";
+            
+            generatedObjects.Add(roomInstance);
+            
+            Log($"Loaded room prefab: {roomConfig.roomPrefab.name}");
+            return roomInstance;
+        }
+        
+        /// <summary>
+        /// Get wall markers from the room prefab manager
+        /// </summary>
+        private List<WallMarker> GetMarkersFromManager(GameObject roomInstance)
+        {
+            RoomPrefabManager manager = roomInstance.GetComponent<RoomPrefabManager>();
+            if (manager == null)
+            {
+                Debug.LogError("[RoomGenerator] Room prefab does not have RoomPrefabManager component!");
+                return null;
+            }
+            
+            if (!manager.Validate())
+            {
+                Debug.LogError("[RoomGenerator] RoomPrefabManager validation failed!");
+                return null;
+            }
+            
+            List<WallMarker> markers = manager.GetAllMarkers();
+            Log($"Found {markers.Count} markers in room prefab '{manager.roomName}'");
+            
+            return markers;
+        }
+        
+        /// <summary>
+        /// Process markers and replace them with buttons/events
+        /// </summary>
+        private void ProcessMarkers(List<WallMarker> markers)
+        {
+            if (markers == null || markers.Count == 0)
+            {
+                Debug.LogWarning("[RoomGenerator] No markers to process!");
+                return;
+            }
+            
+            // Remove null markers and markers already used by events
+            markers.RemoveAll(m => m == null);
+            
+            // IMPORTANT: Filter out markers that are already disabled (used by events)
+            List<WallMarker> availableMarkers = new List<WallMarker>();
+            foreach (var marker in markers)
+            {
+                if (marker.gameObject.activeSelf && marker.markerRenderer != null && marker.markerRenderer.enabled)
+                {
+                    availableMarkers.Add(marker);
+                }
+            }
+            
+            int totalMarkers = availableMarkers.Count;
+            
+            if (totalMarkers == 0)
+            {
+                Log("No available markers remaining after event placement");
+                return;
+            }
+            
+            Log($"Available markers for buttons: {totalMarkers} (after event placement)");
+            
+            // Shuffle markers for randomness
+            ShuffleList(availableMarkers);
+            
+            // Calculate item button density
+            float itemDensityPercent = Random.Range(roomConfig.minButtonDensityPercent, roomConfig.maxButtonDensityPercent);
+            int itemButtonCount = Mathf.RoundToInt(totalMarkers * (itemDensityPercent / 100f));
+            
+            Log($"Item Button Density: {itemDensityPercent:F1}% ({itemButtonCount} buttons out of {totalMarkers} markers)");
+            
+            // Collect items to place
+            List<ItemData> itemsToPlace = new List<ItemData>();
+            
+            // Add required items first
+            if (itemPool.requiredItems != null)
+            {
+                itemsToPlace.AddRange(itemPool.requiredItems);
+            }
+            
+            int requiredItemCount = itemsToPlace.Count;
+            
+            // Ensure we have enough buttons for required items
+            if (itemButtonCount < requiredItemCount)
+            {
+                Log($"Warning: Button density too low! Required items: {requiredItemCount}, target buttons: {itemButtonCount}. Increasing to minimum.");
+                itemButtonCount = requiredItemCount;
+            }
+            
+            // Fill remaining button slots with random items
+            int randomButtonSlots = itemButtonCount - requiredItemCount;
+            for (int i = 0; i < randomButtonSlots; i++)
+            {
+                ItemData randomItem = itemPool.GetRandomItem();
+                if (randomItem != null)
+                {
+                    itemsToPlace.Add(randomItem);
+                }
+            }
+            
+            Log($"Placing {itemsToPlace.Count} item buttons ({requiredItemCount} required, {randomButtonSlots} random)");
+            
+            // Place item buttons
+            int markerIndex = 0;
+            for (int i = 0; i < itemsToPlace.Count && markerIndex < availableMarkers.Count; i++, markerIndex++)
+            {
+                ReplaceMarkerWithItemButton(availableMarkers[markerIndex], itemsToPlace[i]);
+            }
+            
+            // Calculate enemy button density from remaining markers
+            int remainingMarkers = availableMarkers.Count - markerIndex;
+            float enemyDensityPercent = Random.Range(roomConfig.minEnemyButtonDensityPercent, roomConfig.maxEnemyButtonDensityPercent);
+            int enemyButtonCount = Mathf.RoundToInt(remainingMarkers * (enemyDensityPercent / 100f));
+            
+            Log($"Enemy Button Density: {enemyDensityPercent:F1}% ({enemyButtonCount} buttons out of {remainingMarkers} remaining markers)");
+            
+            // Place enemy buttons
+            if (roomConfig.enemyPool != null)
+            {
+                for (int i = 0; i < enemyButtonCount && markerIndex < availableMarkers.Count; i++, markerIndex++)
+                {
+                    EnemyData enemyData = roomConfig.enemyPool.GetRandomEnemy();
+                    if (enemyData != null)
+                    {
+                        ReplaceMarkerWithEnemyButton(availableMarkers[markerIndex], enemyData);
+                    }
+                }
+            }
+            
+            // Remaining markers stay as walls (no replacement needed)
+            int remainingWalls = availableMarkers.Count - markerIndex;
+            Log($"Remaining {remainingWalls} markers will stay as walls");
+        }
+        
+        /// <summary>
+        /// Replace a marker with an item spawn button
+        /// </summary>
+        private void ReplaceMarkerWithItemButton(WallMarker marker, ItemData itemData)
+        {
+            if (marker == null || itemData == null)
+            {
+                return;
+            }
+            
+            if (roomConfig.wallCubeWithButtonPrefab == null)
+            {
+                Debug.LogError("[RoomGenerator] wallCubeWithButtonPrefab is not assigned!");
+                return;
+            }
+            
+            // Instantiate button at marker position
+            GameObject button = Instantiate(
+                roomConfig.wallCubeWithButtonPrefab,
+                marker.transform.position,
+                marker.transform.rotation
+            );
+            
+            button.name = $"ItemButton_{itemData.itemName}";
+            
+            // Set item data on spawn button
+            var spawnButton = button.GetComponent<SpawnButton>();
+            if (spawnButton != null)
+            {
+                spawnButton.SetItemData(itemData);
+            }
+            else
+            {
+                Debug.LogWarning($"[RoomGenerator] Button prefab does not have SpawnButton component!");
+            }
+            
+            // Network spawn
+            NetworkObject netObj = button.GetComponent<NetworkObject>();
+            if (netObj != null)
+            {
+                netObj.Spawn(true);
+            }
+            else
+            {
+                Debug.LogWarning($"[RoomGenerator] Button prefab does not have NetworkObject component!");
+            }
+            
+            // Disable marker
+            marker.DisableMarker();
+            
+            // Track
+            generatedObjects.Add(button);
+            
+            Log($"Replaced marker #{marker.markerId} with item button: {itemData.itemName}");
+        }
+        
+        /// <summary>
+        /// Replace a marker with an enemy spawn button
+        /// </summary>
+        private void ReplaceMarkerWithEnemyButton(WallMarker marker, EnemyData enemyData)
+        {
+            if (marker == null || enemyData == null)
+            {
+                return;
+            }
+            
+            if (roomConfig.wallCubeWithEnemyButtonPrefab == null)
+            {
+                Debug.LogError("[RoomGenerator] wallCubeWithEnemyButtonPrefab is not assigned!");
+                return;
+            }
+            
+            // Instantiate enemy button at marker position
+            GameObject button = Instantiate(
+                roomConfig.wallCubeWithEnemyButtonPrefab,
+                marker.transform.position,
+                marker.transform.rotation
+            );
+            
+            button.name = $"EnemyButton_{enemyData.enemyName}";
+            
+            // Set enemy data on spawn button
+            var enemySpawnButton = button.GetComponent<EnemySpawnButton>();
+            if (enemySpawnButton != null)
+            {
+                enemySpawnButton.SetEnemyData(enemyData);
+            }
+            else
+            {
+                Debug.LogWarning($"[RoomGenerator] Enemy button prefab does not have EnemySpawnButton component!");
+            }
+            
+            // Network spawn
+            NetworkObject netObj = button.GetComponent<NetworkObject>();
+            if (netObj != null)
+            {
+                netObj.Spawn(true);
+            }
+            else
+            {
+                Debug.LogWarning($"[RoomGenerator] Enemy button prefab does not have NetworkObject component!");
+            }
+            
+            // Disable marker
+            marker.DisableMarker();
+            
+            // Track
+            generatedObjects.Add(button);
+            
+            Log($"Replaced marker #{marker.markerId} with enemy button: {enemyData.enemyName}");
+        }
+        
+        /// <summary>
+        /// Place events in prefab room using markers
+        /// </summary>
+        private void PlaceEventsInPrefabRoom(List<WallMarker> markers)
+        {
+            if (roomConfig.eventPool == null)
+            {
+                Log("No event pool configured, skipping event placement");
+                return;
+            }
+            
+            if (!roomConfig.eventPool.Validate())
+            {
+                Debug.LogError("[RoomGenerator] Event pool validation failed!");
+                return;
+            }
+            
+            List<EventData> eventsToPlace = new List<EventData>();
+            
+            // Add required events first
+            if (roomConfig.eventPool.requiredEvents != null)
+            {
+                foreach (var eventData in roomConfig.eventPool.requiredEvents)
+                {
+                    if (eventData != null)
+                    {
+                        eventsToPlace.Add(eventData);
+                    }
+                }
+            }
+            
+            // Add random events
+            int randomEventCount = Random.Range(
+                roomConfig.eventPool.minRandomEvents,
+                roomConfig.eventPool.maxRandomEvents + 1
+            );
+            
+            for (int i = 0; i < randomEventCount; i++)
+            {
+                EventData randomEvent = roomConfig.eventPool.GetRandomEvent();
+                if (randomEvent != null)
+                {
+                    eventsToPlace.Add(randomEvent);
+                }
+            }
+            
+            Log($"Placing {eventsToPlace.Count} events ({roomConfig.eventPool.requiredEvents?.Count ?? 0} required, {randomEventCount} random)");
+            
+            // Try to place each event using markers
+            foreach (var eventData in eventsToPlace)
+            {
+                if (TryPlaceEventOnMarker(eventData, markers))
+                {
+                    // Add event's required items to item pool for buttons
+                    if (eventData.HasRequiredItems)
+                    {
+                        AssignRequiredItemsToButtons(eventData);
+                    }
+                }
+                else
+                {
+                    Debug.LogWarning($"[RoomGenerator] Failed to place event: {eventData.eventName}");
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Try to place an event on a marker position
+        /// </summary>
+        private bool TryPlaceEventOnMarker(EventData eventData, List<WallMarker> markers)
+        {
+            if (eventData == null || eventData.eventPrefab == null)
+            {
+                return false;
+            }
+            
+            // Find available markers (not already used)
+            List<WallMarker> availableMarkers = new List<WallMarker>();
+            foreach (var marker in markers)
+            {
+                if (marker != null && marker.gameObject.activeSelf && marker.markerRenderer != null && marker.markerRenderer.enabled)
+                {
+                    availableMarkers.Add(marker);
+                }
+            }
+            
+            if (availableMarkers.Count == 0)
+            {
+                Debug.LogWarning($"[RoomGenerator] No available markers for event: {eventData.eventName}");
+                return false;
+            }
+            
+            // Shuffle for randomness
+            ShuffleList(availableMarkers);
+            
+            // Try to find space for multi-block event
+            WallMarker selectedMarker = null;
+            List<WallMarker> requiredMarkers = new List<WallMarker>();
+            
+            foreach (var marker in availableMarkers)
+            {
+                // Check if we can place event here (considering size)
+                if (CanPlaceEventAtMarker(marker, eventData, availableMarkers, out requiredMarkers))
+                {
+                    selectedMarker = marker;
+                    break;
+                }
+            }
+            
+            if (selectedMarker == null)
+            {
+                Debug.LogWarning($"[RoomGenerator] No suitable marker found for event: {eventData.eventName} (size: {eventData.size})");
+                return false;
+            }
+            
+            // Calculate proper position and rotation for event
+            Vector3 eventPosition = CalculateEventPosition(selectedMarker, eventData);
+            Quaternion eventRotation = CalculateEventRotation(selectedMarker, eventData);
+            
+            // Instantiate event with calculated position and rotation
+            GameObject eventObj = Instantiate(
+                eventData.eventPrefab,
+                eventPosition,
+                eventRotation
+            );
+            
+            eventObj.name = $"Event_{eventData.eventName}";
+            
+            // Set required items on the event if it supports it
+            var interactableEvent = eventObj.GetComponent<Interactables.InteractableEvent>();
+            if (interactableEvent != null && eventData.HasRequiredItems)
+            {
+                interactableEvent.SetRequiredItems(eventData.requiredItems);
+            }
+            
+            // Network spawn
+            NetworkObject netObj = eventObj.GetComponent<NetworkObject>();
+            if (netObj != null)
+            {
+                netObj.Spawn(true);
+            }
+            else
+            {
+                Debug.LogWarning($"[RoomGenerator] Event {eventData.eventName} has no NetworkObject component!");
+            }
+            
+            // Disable all markers used by this event
+            foreach (var marker in requiredMarkers)
+            {
+                marker.DisableMarker();
+            }
+            
+            // Track
+            spawnedEvents.Add(eventObj);
+            generatedObjects.Add(eventObj);
+            
+            Log($"Placed event '{eventData.eventName}' at marker position (size: {eventData.size}, markers used: {requiredMarkers.Count})");
+            
+            return true;
+        }
+        
+        /// <summary>
+        /// Check if event can be placed at marker (considering size)
+        /// </summary>
+        private bool CanPlaceEventAtMarker(WallMarker marker, EventData eventData, List<WallMarker> availableMarkers, out List<WallMarker> requiredMarkers)
+        {
+            requiredMarkers = new List<WallMarker>();
+            requiredMarkers.Add(marker);
+            
+            // If event is 1x1, we only need one marker
+            if (eventData.size.x <= 1 && eventData.size.y <= 1 && eventData.size.z <= 1)
+            {
+                return true;
+            }
+            
+            // For multi-block events, find adjacent markers using world space grid search
+            Vector3 markerPos = marker.transform.position;
+            float cubeSize = roomConfig.cubeSize;
+            float searchRadius = cubeSize * 0.4f; // Tolerance for finding adjacent markers
+            
+            // Determine wall orientation from marker rotation
+            Vector3 markerForward = marker.transform.forward;
+            Vector3 markerRight = marker.transform.right;
+            Vector3 markerUp = marker.transform.up;
+            
+            // Calculate required positions based on event size
+            // Event size: (width, height, depth)
+            // For walls: width = horizontal, height = vertical, depth = into wall (usually 1)
+            int requiredCount = eventData.size.x * eventData.size.y;
+            
+            // Try to find adjacent markers in a grid pattern
+            // Start from base marker and search right (width) and up (height)
+            for (int w = 0; w < eventData.size.x; w++)
+            {
+                for (int h = 0; h < eventData.size.y; h++)
+                {
+                    if (w == 0 && h == 0) continue; // Already have the first marker
+                    
+                    // Calculate target position using marker's local axes
+                    Vector3 targetPos = markerPos + (markerRight * w * cubeSize) + (markerUp * h * cubeSize);
+                    
+                    // Find marker at this position
+                    WallMarker adjacentMarker = FindMarkerAtPosition(targetPos, availableMarkers, searchRadius);
+                    if (adjacentMarker != null && !requiredMarkers.Contains(adjacentMarker))
+                    {
+                        requiredMarkers.Add(adjacentMarker);
+                    }
+                }
+            }
+            
+            // For multi-block events, we need ALL required markers
+            // Otherwise the event will be placed incorrectly
+            bool hasAllMarkers = requiredMarkers.Count >= requiredCount;
+            
+            if (!hasAllMarkers)
+            {
+                // Debug info
+                Log($"Event '{eventData.eventName}' size {eventData.size} needs {requiredCount} markers, found {requiredMarkers.Count} at position {markerPos}");
+            }
+            
+            return hasAllMarkers;
+        }
+        
+        /// <summary>
+        /// Find marker at specific position
+        /// </summary>
+        private WallMarker FindMarkerAtPosition(Vector3 position, List<WallMarker> markers, float tolerance)
+        {
+            foreach (var marker in markers)
+            {
+                if (marker != null && Vector3.Distance(marker.transform.position, position) < tolerance)
+                {
+                    return marker;
+                }
+            }
+            return null;
+        }
+        
+        /// <summary>
+        /// Calculate event position with proper offset
+        /// </summary>
+        private Vector3 CalculateEventPosition(WallMarker marker, EventData eventData)
+        {
+            Vector3 basePos = marker.transform.position;
+            
+            // Apply offset based on event size
+            // Center the event on the marker
+            Vector3 markerRight = marker.transform.right;
+            Vector3 markerUp = marker.transform.up;
+            Vector3 markerForward = marker.transform.forward;
+            
+            float cubeSize = roomConfig.cubeSize;
+            
+            // Offset to center multi-block events
+            Vector3 centerOffset = Vector3.zero;
+            
+            if (eventData.size.x > 1)
+            {
+                centerOffset += markerRight * (eventData.size.x - 1) * cubeSize * 0.5f;
+            }
+            
+            if (eventData.size.y > 1)
+            {
+                centerOffset += markerUp * (eventData.size.y - 1) * cubeSize * 0.5f;
+            }
+            
+            // Small forward offset to prevent z-fighting with wall
+            centerOffset += markerForward * 0.01f;
+            
+            return basePos + centerOffset;
+        }
+        
+        /// <summary>
+        /// Calculate event rotation based on marker orientation
+        /// </summary>
+        private Quaternion CalculateEventRotation(WallMarker marker, EventData eventData)
+        {
+            // Use marker's rotation directly
+            // Marker should already be oriented correctly for the wall it's on
+            return marker.transform.rotation;
+        }
+        
+        /// <summary>
+        /// Calculate room center from prefab bounds
+        /// </summary>
+        private void CalculateRoomCenterFromPrefab(GameObject roomInstance)
+        {
+            // Get all renderers in the room
+            Renderer[] renderers = roomInstance.GetComponentsInChildren<Renderer>();
+            
+            if (renderers.Length == 0)
+            {
+                roomCenter = roomInstance.transform.position;
+                Log($"Room center (no renderers): {roomCenter}");
+                return;
+            }
+            
+            // Calculate bounds
+            Bounds bounds = renderers[0].bounds;
+            for (int i = 1; i < renderers.Length; i++)
+            {
+                bounds.Encapsulate(renderers[i].bounds);
+            }
+            
+            roomCenter = bounds.center;
+            Log($"Room center calculated from bounds: {roomCenter}");
         }
         
         #endregion

@@ -228,3 +228,5 @@ Artık placement mode sorunsuz çalışıyor:
 **Son Güncelleme**: Obje kameraya gelme sorunu düzeltildi
 **Düzeltilen Dosya**: `Assets/Scripts/Player/PlayerItemUsage.cs`
 
+
+

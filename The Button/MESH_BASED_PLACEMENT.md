@@ -246,3 +246,5 @@ if (col is BoxCollider boxCol)
 
 **📌 Not**: Bu sistem `PlayerItemUsage.cs` dosyasında implement edilmiştir.
 
+
+

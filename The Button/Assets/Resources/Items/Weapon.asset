@@ -28,7 +28,7 @@ MonoBehaviour:
   canBePlaced: 0
   placedPrefab: {fileID: 0}
   canBeHeld: 1
-  handModel: {fileID: 0}
+  handModel: {fileID: 6932166505623321964, guid: 937b70c51fb1b4bd785cc5a4158897fa, type: 3}
   interactionRange: 2
   weaponDamage: 10
   attackRange: 2

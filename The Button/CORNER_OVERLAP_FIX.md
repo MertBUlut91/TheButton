@@ -198,3 +198,5 @@ Köşeler (West + East duvarlarında):
 
 **Çözüldü!** 🎉 Artık köşeler sadece West ve East duvarlarına ait!
 
+
+

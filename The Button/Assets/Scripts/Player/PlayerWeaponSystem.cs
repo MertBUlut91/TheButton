@@ -2,6 +2,7 @@ using Unity.Netcode;
 using UnityEngine;
 using TheButton.Items;
 using TheButton.Network;
+using TheButton.Enemy;
 
 namespace TheButton.Player
 {
@@ -20,6 +21,22 @@ namespace TheButton.Player
         [Header("Weapon Display")]
         [Tooltip("Parent transform for weapon models (in hand)")]
         [SerializeField] private Transform weaponHolder;
+        
+        [Tooltip("Hand bone to follow (drag your character's hand bone here)")]
+        [SerializeField] private Transform handBone;
+        
+        [Tooltip("Use constraint system instead of parenting (fixes scale issues)")]
+        [SerializeField] private bool useConstraintSystem = true;
+        
+        [Header("Position Offset (Optional)")]
+        [Tooltip("Position offset from hand bone")]
+        [SerializeField] private Vector3 positionOffset = Vector3.zero;
+        
+        [Tooltip("Rotation offset from hand bone (in degrees)")]
+        [SerializeField] private Vector3 rotationOffset = Vector3.zero;
+        
+        // Runtime offset (can be changed via code)
+        private Quaternion runtimeRotationOffset = Quaternion.identity;
         
         [Header("Attack Settings")]
         [Tooltip("Layer mask for attackable targets")]
@@ -51,14 +68,87 @@ namespace TheButton.Player
             if (playerNetwork == null)
                 playerNetwork = GetComponent<PlayerNetwork>();
             
-            // Create weapon holder if not assigned
+            // Try to find weapon holder if not assigned
             if (weaponHolder == null)
             {
-                weaponHolder = new GameObject("WeaponHolder").transform;
-                weaponHolder.SetParent(transform);
-                weaponHolder.localPosition = Vector3.zero;
-                weaponHolder.localRotation = Quaternion.identity;
+                // Try to find existing WeaponHolder in children
+                weaponHolder = FindTransformRecursive(transform, "WeaponHolder");
+                
+                // If still not found, create one
+                if (weaponHolder == null)
+                {
+                    Debug.LogWarning("[PlayerWeaponSystem] WeaponHolder not found! Creating default holder.");
+                    weaponHolder = new GameObject("WeaponHolder").transform;
+                    weaponHolder.SetParent(transform);
+                    weaponHolder.localPosition = Vector3.zero;
+                    weaponHolder.localRotation = Quaternion.identity;
+                }
+                else
+                {
+                    Debug.Log($"[PlayerWeaponSystem] Found WeaponHolder at: {weaponHolder.name}");
+                }
             }
+            
+            // Setup constraint system
+            if (useConstraintSystem && handBone != null && weaponHolder != null)
+            {
+                SetupConstraintSystem();
+            }
+            else if (handBone == null)
+            {
+                Debug.LogWarning("[PlayerWeaponSystem] Hand bone not assigned! Please drag your character's hand bone to the 'Hand Bone' field in the inspector.");
+            }
+            
+            // Calculate runtime rotation offset
+            runtimeRotationOffset = Quaternion.Euler(rotationOffset);
+        }
+        
+        /// <summary>
+        /// Setup constraint system
+        /// </summary>
+        private void SetupConstraintSystem()
+        {
+            if (useConstraintSystem)
+            {
+                // Keep WeaponHolder as child of player (not bone) to avoid scale issues
+                weaponHolder.SetParent(transform);
+                weaponHolder.localScale = Vector3.one;
+                
+                Debug.Log($"[PlayerWeaponSystem] Constraint system enabled. WeaponHolder will follow: {handBone.name}");
+            }
+            else
+            {
+                // Direct parenting (old system)
+                weaponHolder.SetParent(handBone);
+                weaponHolder.localPosition = positionOffset;
+                weaponHolder.localRotation = Quaternion.Euler(rotationOffset);
+                weaponHolder.localScale = Vector3.one;
+                
+                Debug.Log($"[PlayerWeaponSystem] Direct parenting enabled. WeaponHolder attached to: {handBone.name}");
+            }
+        }
+        
+        /// <summary>
+        /// Recursively find a transform by name (helper function)
+        /// </summary>
+        private Transform FindTransformRecursive(Transform parent, string targetName)
+        {
+            // Check if this is the target
+            if (parent.name.Equals(targetName, System.StringComparison.OrdinalIgnoreCase) || 
+                parent.name.Contains(targetName))
+            {
+                return parent;
+            }
+            
+            // Search in children
+            foreach (Transform child in parent)
+            {
+                Transform result = FindTransformRecursive(child, targetName);
+                if (result != null)
+                    return result;
+            }
+            
+            return null;
         }
         
         private void Start()
@@ -90,11 +180,30 @@ namespace TheButton.Player
             // Only local player can attack
             if (!IsOwner) return;
             
+            // Update constraint system
+            if (useConstraintSystem && handBone != null && weaponHolder != null)
+            {
+                UpdateWeaponHolderConstraint();
+            }
+            
             // Handle attack input (left mouse button)
             if (Input.GetMouseButtonDown(0))
             {
                 TryAttack();
             }
+        }
+        
+        /// <summary>
+        /// Update weapon holder position to follow hand bone (constraint system)
+        /// </summary>
+        private void UpdateWeaponHolderConstraint()
+        {
+            // Copy position and rotation from hand bone, but keep scale independent
+            weaponHolder.position = handBone.position + handBone.TransformDirection(positionOffset);
+            weaponHolder.rotation = handBone.rotation * runtimeRotationOffset;
+            
+            // Force scale to stay at 1 (ignore bone scale)
+            weaponHolder.localScale = Vector3.one;
         }
         
         /// <summary>
@@ -139,16 +248,20 @@ namespace TheButton.Player
             if (weaponData.handModel != null && weaponHolder != null)
             {
                 currentWeaponModel = Instantiate(weaponData.handModel, weaponHolder);
-                currentWeaponModel.transform.localPosition = Vector3.zero;
-                currentWeaponModel.transform.localRotation = Quaternion.identity;
                 
-                // Position weapon holder in front of camera
-                if (cameraTransform != null)
-                {
-                    weaponHolder.SetParent(cameraTransform);
-                    weaponHolder.localPosition = new Vector3(0.3f, -0.2f, 0.5f); // Adjust as needed
-                    weaponHolder.localRotation = Quaternion.identity;
-                }
+                // Keep the prefab's original transform (position, rotation, scale)
+                // This allows each weapon to have its own positioning
+                // Note: If you want to override, set them after instantiation
+                
+                Debug.Log($"[PlayerWeaponSystem] Weapon model spawned at {weaponHolder.name}");
+                Debug.Log($"[PlayerWeaponSystem] Weapon transform - Pos: {currentWeaponModel.transform.localPosition}, Rot: {currentWeaponModel.transform.localRotation.eulerAngles}, Scale: {currentWeaponModel.transform.localScale}");
+            }
+            else
+            {
+                if (weaponData.handModel == null)
+                    Debug.LogWarning($"[PlayerWeaponSystem] {weaponData.itemName} has no hand model assigned!");
+                if (weaponHolder == null)
+                    Debug.LogWarning("[PlayerWeaponSystem] Weapon holder is not assigned!");
             }
             
             OnWeaponEquipped?.Invoke(weaponData);
@@ -169,14 +282,7 @@ namespace TheButton.Player
             {
                 Destroy(currentWeaponModel);
                 currentWeaponModel = null;
-            }
-            
-            // Reset weapon holder parent
-            if (weaponHolder != null)
-            {
-                weaponHolder.SetParent(transform);
-                weaponHolder.localPosition = Vector3.zero;
-                weaponHolder.localRotation = Quaternion.identity;
+                Debug.Log("[PlayerWeaponSystem] Weapon model destroyed");
             }
             
             OnWeaponUnequipped?.Invoke();
@@ -243,8 +349,17 @@ namespace TheButton.Player
                 if (targetPlayer != null)
                 {
                     // Deal damage to player
-                    DealDamageServerRpc(targetPlayer.NetworkObjectId, currentWeapon.weaponDamage);
+                    DealDamageToPlayerServerRpc(targetPlayer.NetworkObjectId, currentWeapon.weaponDamage);
                     Debug.Log($"[PlayerWeaponSystem] Dealt {currentWeapon.weaponDamage} damage to player");
+                }
+                
+                // Check if hit object has EnemyHealth (is an enemy)
+                var targetEnemy = hit.collider.GetComponent<EnemyHealth>();
+                if (targetEnemy != null)
+                {
+                    // Deal damage to enemy
+                    targetEnemy.TakeDamageServerRpc(currentWeapon.weaponDamage);
+                    Debug.Log($"[PlayerWeaponSystem] Dealt {currentWeapon.weaponDamage} damage to enemy");
                 }
                 
                 // Spawn hit effect
@@ -286,8 +401,17 @@ namespace TheButton.Player
                 if (targetPlayer != null)
                 {
                     // Deal damage to player
-                    DealDamageServerRpc(targetPlayer.NetworkObjectId, currentWeapon.weaponDamage);
+                    DealDamageToPlayerServerRpc(targetPlayer.NetworkObjectId, currentWeapon.weaponDamage);
                     Debug.Log($"[PlayerWeaponSystem] Dealt {currentWeapon.weaponDamage} damage to player");
+                }
+                
+                // Check if hit object has EnemyHealth (is an enemy)
+                var targetEnemy = hit.collider.GetComponent<EnemyHealth>();
+                if (targetEnemy != null)
+                {
+                    // Deal damage to enemy
+                    targetEnemy.TakeDamageServerRpc(currentWeapon.weaponDamage);
+                    Debug.Log($"[PlayerWeaponSystem] Dealt {currentWeapon.weaponDamage} damage to enemy");
                 }
                 
                 // Spawn hit effect
@@ -316,7 +440,7 @@ namespace TheButton.Player
         /// Deal damage to a target player (server-side)
         /// </summary>
         [ServerRpc(RequireOwnership = false)]
-        private void DealDamageServerRpc(ulong targetNetworkObjectId, float damage)
+        private void DealDamageToPlayerServerRpc(ulong targetNetworkObjectId, float damage)
         {
             // Find target network object
             if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetNetworkObjectId, out NetworkObject targetNetObj))
@@ -379,6 +503,23 @@ namespace TheButton.Player
             return Mathf.Max(0f, cooldownRemaining);
         }
         
+        /// <summary>
+        /// Set weapon holder offset (for fine-tuning position at runtime)
+        /// </summary>
+        public void SetWeaponHolderOffset(Vector3 offset)
+        {
+            positionOffset = offset;
+        }
+        
+        /// <summary>
+        /// Set weapon holder rotation offset (for fine-tuning rotation at runtime)
+        /// </summary>
+        public void SetWeaponHolderRotationOffset(Vector3 eulerAngles)
+        {
+            rotationOffset = eulerAngles;
+            runtimeRotationOffset = Quaternion.Euler(eulerAngles);
+        }
+        
         private void OnDestroy()
         {
             // Unsubscribe from events
@@ -406,4 +547,5 @@ namespace TheButton.Player
 #endif
     }
 }
+
 
